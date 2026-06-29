@@ -1,0 +1,834 @@
+================================================================================
+  VOICE ORDERS — COMPLETE SYSTEM DOCUMENTATION
+================================================================================
+
+  A voice-to-order processing system with ElevenLabs real-time transcription,
+  OpenAI correction/parsing, local order storage, webhook dispatch, and
+  full Daftra ERP API integration.
+
+================================================================================
+  1. SYSTEM ARCHITECTURE
+================================================================================
+
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │                           BROWSER (Alpine.js)                            │
+  │                                                                          │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                    voiceCapture (Alpine component)               │    │
+  │  │                                                                  │    │
+  │  │  ┌──────────┐    ┌─────────────────┐    ┌──────────────────┐    │    │
+  │  │  │Microphone│───▶│ ElevenLabs Scribe│───▶│  Transcript Box  │    │    │
+  │  │  │ Button   │    │  (WebSocket)    │    │  (editable)      │    │    │
+  │  │  └──────────┘    └─────────────────┘    └────────┬─────────┘    │    │
+  │  │                                                   │              │    │
+  │  │                    ┌──────────────────────────────┼──────────┐   │    │
+  │  │                    │  Actions                     │          │   │    │
+  │  │                    │  ┌──────────┐  ┌──────────┐  │          │   │    │
+  │  │                    │  │Suggest   │  │Send Order│──┼──────────┘   │    │
+  │  │                    │  │Fix (AI)  │  │(Daftra)  │  │             │    │
+  │  │                    │  └──────────┘  └──────────┘  │             │    │
+  │  │                    │  ┌──────────┐  ┌──────────┐  │             │    │
+  │  │                    │  │Interpret │  │ Clear    │  │             │    │
+  │  │                    │  │(NL→Query)│  │          │  │             │    │
+  │  │                    │  └──────────┘  └──────────┘  │             │    │
+  │  │                    └──────────────────────────────┘             │    │
+  │  │                                                                  │    │
+  │  │  Daftra Credentials: [Domain ____] [API Key ****]                │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  │                                                                          │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                    orderHistory (Alpine component)               │    │
+  │  │  ┌────────────┬────────────┬────────────┬────────────┐          │    │
+  │  │  │ Order #1   │ Order #2   │ Order #3   │ ...        │          │    │
+  │  │  │ transcript │ transcript │ transcript │            │          │    │
+  │  │  │ status     │ status     │ status     │            │          │    │
+  │  │  └────────────┴────────────┴────────────┴────────────┘          │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  └───────────────────────────────────────────────────────────────────────────┘
+                              │  │  │
+              ┌───────────────┘  │  └───────────────┐
+              ▼                  ▼                  ▼
+  ┌────────────────────┐ ┌──────────────┐ ┌────────────────────┐
+  │  GET /api/         │ │ POST /api/   │ │ POST /api/         │
+  │  elevenlabs/token  │ │ transcript/  │ │ orders/daftra      │
+  │                    │ │ suggest      │ │                    │
+  │  ┌──────────────┐  │ │              │ │  ┌──────────────┐  │
+  │  │ ElevenLabs   │  │ │ ┌──────────┐ │ │  │ AI Parse    │  │
+  │  │ API → token  │  │ │ │ OpenAI   │ │ │  │ → Items     │  │
+  │  │ + ws_url     │  │ │ │ GPT-4o   │ │ │  │ → Daftra    │  │
+  │  └──────────────┘  │ │ │ mini     │ │ │  │   Invoice   │  │
+  └────────────────────┘ │ │ (fix)    │ │ │  └──────────────┘  │
+                          │ └──────────┘ │ └────────────────────┘
+                          └──────────────┘
+                              │
+                              ▼
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │                         LARAVEL BACKEND                                  │
+  │                                                                          │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                        MIDDLEWARE                                │    │
+  │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │    │
+  │  │  │ auth:sanctum │  │ verified     │  │ CheckQuota (STUB)   │   │    │
+  │  │  └──────────────┘  └──────────────┘  └──────────────────────┘   │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  │                                                                          │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                    CONTROLLERS                                  │    │
+  │  │                                                                  │    │
+│  │  │  ElevenLabsController  OrderController  TranscriptController  │    │
+  │  │  ┌────────────────┐   ┌────────────────┐   ┌────────────────┐   │    │
+  │  │  │ token()        │   │ store()        │   │ suggest()      │   │    │
+  │  │  │ → get token    │   │ index()        │   │ → AI fix       │   │    │
+  │  │  │   from EL API  │   │ sendToDaftra() │   │   transcript   │   │    │
+  │  │  └────────────────┘   │ interpret()    │   └────────────────┘   │    │
+  │  │                       └────────────────┘                        │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  │                                                                          │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                    SERVICES / DOMAIN LOGIC                       │    │
+  │  │                                                                  │    │
+  │  │  ┌───────────────────────────────────────────────────────────┐   │    │
+  │  │  │                  Daftra Integration Layer                 │   │    │
+  │  │  │                                                           │   │    │
+│  │  │  ┌────────────┐  ┌────────────────┐  ┌────────────────┐   │   │    │
+  │  │  │ DaftraClient│  │ Resources/     │  │ Data/ (DTOs)   │   │   │    │
+  │  │  │ - HTTP auth │  │ - Client       │  │ - ClientData   │   │   │    │
+  │  │  │ - base URL  │  │ - Invoice      │  │ - InvoiceData  │   │   │    │
+  │  │  │ - GET/POST  │  │ - Product      │  │ - ProductData  │   │   │    │
+  │  │  │   /PUT/DEL  │  │ - StockTrans   │  │ - ... (34)     │   │   │    │
+  │  │  └────────────┘  │ - ... (34)      │  └────────────────┘   │   │    │
+  │  │                   └────────────────┘                        │   │    │
+  │  │                                                           │   │    │
+  │  │  ┌────────────┐  ┌────────────────┐  ┌────────────────┐   │   │    │
+  │  │  │ Query/     │  │ Interpreter/   │  │ DaftraService  │   │   │    │
+  │  │  │ DaftraQuery│  │ - Intent       │  │ - interpret()  │   │   │    │
+  │  │  │ - filters  │  │ - IntentType   │  │ - execute()    │   │   │    │
+  │  │  │ - paginate │  │ - QueryInterp  │  │ - processVoice │   │   │    │
+  │  │  │ - sort     │  │ - ResponseForm │  │   Order()      │   │   │    │
+  │  │  └────────────┘  └────────────────┘  └────────────────┘   │   │    │
+  │  │  └───────────────────────────────────────────────────────────┘   │    │
+  │  │                                                                          │
+  │  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │  │              JOBS (Queued)                                      │    │
+  │  │  │  ┌──────────────────────────────────────────────────────────┐   │    │
+  │  │  │  │  ProcessOrderWebhooks                                     │   │    │
+  │  │  │  │  - For each active webhook endpoint:                      │   │    │
+  │  │  │  │    1. Optionally parse via OpenAI (transform_prompt)      │   │    │
+  │  │  │  │    2. HTTP request to endpoint URL                        │   │    │
+  │  │  │  │    3. Log in UsageLog                                     │   │    │
+  │  │  │  │    4. Update order status + response_log                  │   │    │
+  │  │  │  └──────────────────────────────────────────────────────────┘   │    │
+  │  │  └──────────────────────────────────────────────────────────────────┘    │
+  │  │                                                                          │
+  │  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │  │              SCHEDULED COMMANDS                                 │    │
+  │  │  │  ┌──────────────────────────────────────────────────────────┐   │    │
+  │  │  │  │  ResetUserQuotas (hourly)                                │   │    │
+  │  │  │  │  - Reset used_this_month = 0 for users where             │   │    │
+  │  │  │  │    quota_reset_at <= now                                 │   │    │
+  │  │  └──────────────────────────────────────────────────────────┘   │    │
+  │  │  └──────────────────────────────────────────────────────────────────┘    │
+  │  │                                                                          │
+  │  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │  │                    MODELS                                        │    │
+  │  │  │                                                                  │    │
+│  │  │   User ──┐                                                       │    │
+  │  │  │         ├── hasMany ──── Order                                  │    │
+  │  │  │         ├── hasMany ──── WebhookEndpoint                        │    │
+  │  │  │         ├── hasMany ──── UsageLog                               │    │
+  │  │  │         └── hasOne ───── UserSubscription                       │    │
+  │  │  │                  └── belongsTo ── SubscriptionPlan              │    │
+  │  │  └──────────────────────────────────────────────────────────────────┘    │
+  │  └───────────────────────────────────────────────────────────────────────────┘
+  │                                                                          │
+  │                          ▼                                               │
+  │  ┌──────────────────────────────────────────────────────────────────┐    │
+  │  │                     DATABASE (MySQL)                             │    │
+  │  │                                                                  │    │
+  │  │  users                          orders                           │    │
+  │  │  ┌──────────────────┐           ┌──────────────────────────┐     │    │
+  │  │  │ id               │           │ id                       │     │    │
+  │  │  │ name             │      ┌────│ user_id (FK)             │     │    │
+  │  │  │ email            │      │    │ transcript               │     │    │
+  │  │  │ monthly_quota    │      │    │ parsed_data (JSON)       │     │    │
+  │  │  │ used_this_month  │      │    │ status                   │     │    │
+  │  │  │ quota_reset_at   │      │    │ response_log (JSON)      │     │    │
+  │  │  └──────────────────┘      │    │ created_at               │     │    │
+  │  │                            │    └──────────────────────────┘     │    │
+  │  │  webhook_endpoints         │                                     │    │
+  │  │  ┌──────────────────────┐  │    usage_logs                       │    │
+  │  │  │ id                   │  │    ┌──────────────────────────┐     │    │
+  │  │  │ user_id (FK) ────────┼──┘    │ id                       │     │    │
+  │  │  │ name                 │       │ user_id (FK)             │     │    │
+  │  │  │ url                  │       │ action (transcription,   │     │    │
+  │  │  │ method               │       │         webhook,         │     │    │
+  │  │  │ headers (JSON)       │       │         daftra_order)    │     │    │
+  │  │  │ transform_prompt     │       │ metadata (JSON)          │     │    │
+  │  │  │ is_active            │       │ created_at               │     │    │
+  │  │  └──────────────────────┘       └──────────────────────────┘     │    │
+  │  │                                                                  │    │
+  │  │  subscription_plans              user_subscriptions              │    │
+  │  │  ┌──────────────────────┐       ┌──────────────────────────┐     │    │
+  │  │  │ id                   │       │ id                       │     │    │
+  │  │  │ name                 │──┐    │ user_id (FK)             │     │    │
+  │  │  │ price                │  │    │ plan_id (FK) ────────────┼──┘  │    │
+  │  │  │ monthly_quota        │  │    │ start_date               │      │    │
+  │  │  │ features (JSON)      │  │    │ end_date                 │      │    │
+  │  │  └──────────────────────┘  │    │ status (active/canceled) │      │    │
+  │  │                            │    └──────────────────────────┘      │    │
+  │  │                            └─── personal_access_tokens            │    │
+  │  │                                 (Laravel Sanctum)                 │    │
+  │  └──────────────────────────────────────────────────────────────────┘    │
+  └───────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  2. COMPLETE DIRECTORY STRUCTURE
+================================================================================
+
+  voiceOrders/
+  ├── app/
+  │   ├── Console/Commands/
+  │   │   └── ResetUserQuotas.php            # Hourly quota reset
+  │   │
+  │   ├── Filament/Resources/
+  │   │   ├── Orders/                         # Admin CRUD for orders
+  │   │   │   ├── OrderResource.php
+  │   │   │   ├── Pages/
+  │   │   │   ├── Schemas/
+  │   │   │   └── Tables/
+  │   │   ├── SubscriptionPlans/              # Admin CRUD for plans
+  │   │   ├── UsageLogs/                      # Admin view-only logs
+  │   │   ├── Users/                          # Admin user management
+  │   │   └── WebhookEndpoints/               # Admin CRUD for webhooks
+  │   │       ├── WebhookEndpointResource.php
+  │   │       ├── Pages/
+  │   │       ├── Schemas/
+  │   │       └── Tables/
+  │   │
+  │   ├── Http/
+  │   │   ├── Controllers/
+  │   │   │   ├── Auth/                       # Breeze auth controllers
+  │   │   │   ├── ElevenLabsController.php    # GET /api/elevenlabs/token
+  │   │   │   ├── OrderController.php         # Orders CRUD + Daftra integration
+  │   │   │   ├── ProfileController.php       # User profile
+  │   │   │   ├── TranscriptController.php    # POST /api/transcript/suggest
+  │   │   │   └── WebhookEndpointController.php  # STUB (empty)
+  │   │   ├── Middleware/
+  │   │   │   └── CheckQuota.php              # STUB (not implemented)
+  │   │   └── Requests/
+  │   │       ├── DaftraInterpretRequest.php  # Validation for interpret endpoint
+  │   │       ├── DaftraOrderRequest.php      # Validation for daftra order
+  │   │       └── ... (Auth requests)
+  │   │
+  │   ├── Jobs/
+  │   │   └── ProcessOrderWebhooks.php        # Queued webhook dispatcher
+  │   │
+  │   ├── Models/
+  │   │   ├── Order.php
+  │   │   ├── SubscriptionPlan.php
+  │   │   ├── UsageLog.php
+  │   │   ├── User.php
+  │   │   ├── UserSubscription.php
+  │   │   └── WebhookEndpoint.php
+  │   │
+  │   ├── Providers/
+  │   │   ├── AppServiceProvider.php
+  │   │   └── Filament/AdminPanelProvider.php
+  │   │
+  │   ├── Services/                           # <<< NEW: Daftra Integration
+  │   │   └── Daftra/
+  │   │       ├── DaftraClient.php            # HTTP transport layer
+  │   │       ├── DaftraResponse.php          # Response wrapper
+  │   │       ├── DaftraException.php         # Custom exceptions
+  │   │       ├── DaftraService.php           # High-level integration
+  │   │       │
+  │   │       ├── Data/                       # DTOs (request/response objects)
+  │   │       │   ├── Data.php                # Abstract base class
+  │   │       │   ├── AppointmentData.php
+  │   │       │   ├── AttendanceLogData.php
+  │   │       │   ├── ClientData.php
+  │   │       │   ├── ClientPaymentData.php
+  │   │       │   ├── CreditNoteData.php
+  │   │       │   ├── EstimateData.php
+  │   │       │   ├── ExpenseData.php
+  │   │       │   ├── FollowUpActionData.php
+  │   │       │   ├── FollowUpStatusData.php
+  │   │       │   ├── IncomeData.php
+  │   │       │   ├── InvoiceData.php
+  │   │       │   ├── InvoiceItemData.php
+  │   │       │   ├── InvoicePaymentData.php
+  │   │       │   ├── JournalAccountData.php
+  │   │       │   ├── JournalCatData.php
+  │   │       │   ├── JournalData.php
+  │   │       │   ├── NoteData.php
+  │   │       │   ├── ProductCategoryData.php
+  │   │       │   ├── ProductData.php
+  │   │       │   ├── PurchaseInvoiceData.php
+  │   │       │   ├── PurchaseInvoiceItemData.php
+  │   │       │   ├── PurchaseRefundData.php
+  │   │       │   ├── RefundReceiptData.php
+  │   │       │   ├── SiteData.php
+  │   │       │   ├── StaffData.php
+  │   │       │   ├── StockTransactionData.php
+  │   │       │   ├── StoreData.php
+  │   │       │   ├── SupplierData.php
+  │   │       │   ├── TaxData.php
+  │   │       │   ├── TimeTrackingData.php
+  │   │       │   ├── TreasuryData.php
+  │   │       │   └── WorkOrderData.php
+  │   │       │
+  │   │       ├── Resources/                  # Module CRUD wrappers
+  │   │       │   ├── Resource.php            # Abstract base (list,get,create,update,delete)
+  │   │       │   ├── AttendanceLogResource.php
+  │   │       │   ├── ClientAppointmentResource.php
+  │   │       │   ├── ClientPaymentResource.php
+  │   │       │   ├── ClientResource.php
+  │   │       │   ├── CreditNoteResource.php
+  │   │       │   ├── EstimateAppointmentResource.php
+  │   │       │   ├── EstimateResource.php
+  │   │       │   ├── ExpenseResource.php
+  │   │       │   ├── FollowUpActionResource.php
+  │   │       │   ├── FollowUpStatusResource.php
+  │   │       │   ├── GeneralListingResource.php
+  │   │       │   ├── IncomeResource.php
+  │   │       │   ├── InvoiceAppointmentResource.php
+  │   │       │   ├── InvoicePaymentResource.php
+  │   │       │   ├── InvoiceResource.php
+  │   │       │   ├── JournalAccountResource.php
+  │   │       │   ├── JournalCatResource.php
+  │   │       │   ├── JournalResource.php
+  │   │       │   ├── NoteResource.php
+  │   │       │   ├── ProductCategoryResource.php
+  │   │       │   ├── ProductResource.php
+  │   │       │   ├── PurchaseInvoiceResource.php
+  │   │       │   ├── PurchaseRefundResource.php
+  │   │       │   ├── RefundReceiptResource.php
+  │   │       │   ├── SiteResource.php
+  │   │       │   ├── StaffResource.php
+  │   │       │   ├── StockTransactionResource.php
+  │   │       │   ├── StoreResource.php
+  │   │       │   ├── SupplierResource.php
+  │   │       │   ├── TaxResource.php
+  │   │       │   ├── TimeTrackingResource.php
+  │   │       │   ├── TreasuryResource.php
+  │   │       │   ├── WorkOrderAppointmentResource.php
+  │   │       │   └── WorkOrderResource.php
+  │   │       │
+  │   │       ├── Query/
+  │   │       │   ├── DaftraFilter.php        # Filter value object
+  │   │       │   └── DaftraQuery.php         # Chainable query builder
+  │   │       │
+  │   │       └── Interpreter/                # Natural Language → API
+  │   │           ├── Intent.php              # Parsed intent value object
+  │   │           ├── IntentType.php          # Enum (list,get,create,update,delete,count)
+  │   │           ├── QueryInterpreter.php    # AI-powered NL parser
+  │   │           └── ResponseFormatter.php   # API response → natural language
+  │   │
+  │   └── View/Components/
+  │       ├── AppLayout.php
+  │       └── GuestLayout.php
+  │
+  ├── bootstrap/app.php                       # Laravel app config + middleware
+  │
+  ├── config/
+  │   ├── services.php                        # ElevenLabs + OpenAI API keys
+  │   └── ... (app, auth, cache, database, etc.)
+  │
+  ├── database/
+  │   ├── migrations/ (11 migration files)
+  │   │   ├── 0001_01_01_000000_create_users_table.php
+  │   │   ├── 0001_01_01_000001_create_cache_table.php
+  │   │   ├── 0001_01_01_000002_create_jobs_table.php
+  │   │   ├── 2026_06_22_184606_create_orders_table.php
+  │   │   ├── 2026_06_22_184606_create_webhook_endpoints_table.php
+  │   │   ├── 2026_06_22_184607_create_subscription_plans_table.php
+  │   │   ├── 2026_06_22_184607_create_user_subscriptions_table.php
+  │   │   ├── 2026_06_22_184607_create_usage_logs_table.php
+  │   │   ├── 2026_06_22_184608_add_quota_to_users_table.php
+  │   │   ├── 2026_06_24_171742_create_personal_access_tokens_table.php
+  │   │   └── 2026_06_25_000001_add_transform_prompt_to_webhook_endpoints.php
+  │   └── seeders/DatabaseSeeder.php
+  │
+  ├── resources/
+  │   ├── css/app.css
+  │   ├── js/
+  │   │   ├── app.js                          # Alpine.js bootstrap
+  │   │   └── voice-orders.js                 # voiceCapture + orderHistory components
+  │   └── views/
+  │       ├── dashboard.blade.php             # Main voice UI
+  │       ├── welcome.blade.php               # Landing page
+  │       ├── layouts/
+  │       ├── components/
+  │       ├── profile/
+  │       └── auth/
+  │
+  ├── routes/
+  │   ├── api.php                             # Sanctum-protected API routes
+  │   ├── web.php                             # Web routes (welcome, dashboard, profile)
+  │   ├── auth.php                            # Breeze auth routes
+  │   └── console.php                         # Schedule (ResetUserQuotas hourly)
+  │
+  ├── .env                                    # Environment config
+  ├── composer.json
+  ├── package.json
+  ├── tailwind.config.js
+  └── vite.config.js
+
+
+================================================================================
+  3. DATABASE SCHEMA (Migrations)
+================================================================================
+
+  3.1 users
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK   Auto-increment
+  name                varchar(255)
+  email               varchar(255)    Unique
+  email_verified_at   timestamp       Nullable
+  password            varchar(255)    Hashed
+  monthly_quota       int(11)         Default NULL (set by migration #9)
+  used_this_month     int(11)         Default 0
+  quota_reset_at      timestamp       Nullable
+  remember_token      varchar(100)
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.2 orders
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK
+  user_id             bigint(20) FK   → users.id
+  transcript          text            Raw voice transcript
+  parsed_data         json            Nullable (AI-parsed order items)
+  status              varchar(20)     pending / sent / failed
+  response_log        json            Nullable (webhook/Daftra responses)
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.3 webhook_endpoints
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK
+  user_id             bigint(20) FK   → users.id
+  name                varchar(255)
+  url                 varchar(255)    Webhook destination URL
+  method              varchar(10)     GET / POST / PUT
+  headers             json            Custom headers
+  transform_prompt    text            Nullable (OpenAI transform instruction)
+  is_active           tinyint(1)      Default 1
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.4 subscription_plans
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK
+  name                varchar(255)
+  price               decimal(10,2)
+  monthly_quota       int(11)
+  features            json
+  is_active           tinyint(1)
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.5 user_subscriptions
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK
+  user_id             bigint(20) FK   → users.id
+  plan_id             bigint(20) FK   → subscription_plans.id
+  start_date          date
+  end_date            date            Nullable
+  status              varchar(20)     active / canceled
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.6 usage_logs
+  ────────────────────────────────────────────────────────────────────────────────
+  Column              Type            Notes
+  ────────────────────────────────────────────────────────────────────────────────
+  id                  bigint(20) PK
+  user_id             bigint(20) FK   → users.id
+  action              varchar(50)     transcription / webhook / daftra_order
+  metadata            json            Context data (order_id, endpoint_id, etc.)
+  created_at          timestamp
+  updated_at          timestamp
+  ────────────────────────────────────────────────────────────────────────────────
+
+  3.7 personal_access_tokens (Laravel Sanctum)
+  ────────────────────────────────────────────────────────────────────────────────
+  Standard Sanctum token table for API authentication.
+
+  Key Relationships:
+  ┌──────────┐       ┌──────────────┐       ┌─────────────────┐
+  │   User   │──1:N──│    Order     │──N:1──│  WebhookEndpoint│
+  │          │──1:N──│  UsageLog    │       └─────────────────┘
+  │          │──1:1──│UserSubscript.│──N:1──│ SubscriptionPlan│
+  └──────────┘       └──────────────┘       └─────────────────┘
+
+
+================================================================================
+  4. BUSINESS LOGIC FLOWS
+================================================================================
+
+  4.1 VOICE ORDER FLOW
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. User clicks microphone button
+  2. Browser requests GET /api/elevenlabs/token
+     → ElevenLabsController calls ElevenLabs API → returns ws_url + token
+  3. Browser opens WebSocket to ElevenLabs real-time transcription
+  4. User speaks → ElevenLabs sends partial transcripts (real-time display)
+  5. On silence (VAD, 1.5s threshold) → committed transcript received
+  6. Recording stops after 60s max or user click
+  7. User can:
+     a. Click "Suggest fix" → POST /api/transcript/suggest
+        → OpenAI GPT-4o-mini corrects transcription errors
+     b. Manually edit the transcript text
+     c. Enter Daftra credentials (domain + API key)
+     d. Click "Interpret" → POST /api/daftra/interpret
+        → AI parses NL query into structured intent
+     e. Click "Send Order" → POST /api/orders or /api/orders/daftra
+
+  4.2 LOCAL ORDER CREATION (POST /api/orders)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. Validate: { transcript: required|string }
+  2. Check quota: if user.used_this_month >= user.monthly_quota → 429
+  3. Create Order record (status: pending)
+  4. Create UsageLog (action: transcription)
+  5. Increment user.used_this_month
+  6. Dispatch ProcessOrderWebhooks job (queued, database driver)
+  7. Return order JSON (201)
+
+  4.3 WEBHOOK DISPATCH (ProcessOrderWebhooks job)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. Load user + active webhook endpoints
+  2. If no endpoints → update order status to "sent", return
+  3. For each endpoint:
+     a. Build payload:
+        - Base: { transcript, order_id, user_id, timestamp }
+        - If endpoint has transform_prompt:
+          → Call OpenAI GPT-4o-mini with prompt to parse transcript
+          → Store parsed_data on order
+          → Append parsed data to payload
+     b. Send HTTP request (with custom headers, 15s timeout)
+     c. Log success/error in responses array + UsageLog
+  4. Update order: status = "sent", response_log = [responses]
+
+  4.4 DAFTRA ORDER FLOW (POST /api/orders/daftra)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. Validate: { transcript, daftra_domain, daftra_api_key }
+  2. Check quota
+  3. Call DaftraService::processVoiceOrder(transcript, apiKey, domain):
+     a. Call OpenAI to parse transcript:
+        → Extract: { client_name, items: [{item, quantity, unit_price}] }
+     b. Create DaftraClient(domain, apiKey)
+     c. Build InvoiceData with parsed items + client name + notes
+     d. POST to https://{domain}.daftra.com/api2/invoices.json
+        → Header: APIKEY: {apiKey}
+        → Body: { Invoice: { client_business_name, notes },
+                  InvoiceItem: [{ item, quantity, unit_price }] }
+     e. Return Daftra response
+  4. Create local Order record (status: sent, parsed_data, response_log)
+  5. Create UsageLog (action: daftra_order)
+  6. Increment quota
+  7. Return order + parsed data + Daftra result
+
+  4.5 NL QUERY INTERPRETATION (POST /api/daftra/interpret)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. Validate: { transcript }
+  2. Call DaftraService::interpretAndExecute(transcript):
+     a. Call OpenAI with system prompt describing all 34 Daftra modules
+     b. AI returns structured JSON:
+        { type: "list"|"get"|"create"|"update"|"delete",
+          module: "invoices"|"clients"|...,
+          filters: { client_name: "...", date_from: "...", ... },
+          is_complete: true|false,
+          clarification: "..." }
+     c. If not complete → return clarification question
+     d. If Daftra credentials provided → execute against Daftra API
+     e. Format response into natural language
+  3. Return result to frontend
+
+  4.6 QUOTA RESET (Scheduled Command)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  1. Runs hourly via app:reset-user-quotas
+  2. Find users where quota_reset_at <= now AND used_this_month > 0
+  3. Set used_this_month = 0, quota_reset_at = null
+
+
+================================================================================
+  5. API ROUTES SUMMARY
+================================================================================
+
+  All routes under `auth:sanctum` middleware (API token or SPA cookie auth):
+
+  ┌────────┬────────────────────────────┬─────────────────────────────────────┐
+  │ Method │ Path                       │ Handler                             │
+  ├────────┼────────────────────────────┼─────────────────────────────────────┤
+  │ GET    │ /api/user                  │ Closure (return $request->user())   │
+  │ GET    │ /api/elevenlabs/token      │ ElevenLabsController@token          │
+  │ POST   │ /api/orders                │ OrderController@store               │
+  │ GET    │ /api/orders                │ OrderController@index               │
+  │ POST   │ /api/orders/daftra         │ OrderController@sendToDaftra        │
+  │ POST   │ /api/transcript/suggest    │ TranscriptController@suggest        │
+  │ POST   │ /api/daftra/interpret      │ OrderController@interpret           │
+  └────────┴────────────────────────────┴─────────────────────────────────────┘
+
+
+================================================================================
+  6. DAFTRA INTEGRATION LAYER — DETAILED REFERENCE
+================================================================================
+
+  6.1 ARCHITECTURE
+  ────────────────────────────────────────────────────────────────────────────────
+
+  Usage:
+    $client = new DaftraClient('my-domain', 'my-api-key');
+
+    // Direct resource access (magic method)
+    $client->invoices()->list(['client_id' => 42]);
+    $client->clients()->get(1);
+    $client->products()->create(new ProductData(name: 'Widget', price: 9.99));
+    $client->suppliers()->update(5, new SupplierData(email: 'new@email.com'));
+    $client->stock_transactions()->delete(10);
+
+    // OR explicit module access
+    $client->module('invoices')->list($query->toQueryParams());
+
+    // High-level service
+    $daftra = new DaftraService($client);
+    $intent = $daftra->interpret("show invoices for Acme Corp");
+    $result = $daftra->execute($intent);
+
+  6.2 DAFTRA MODULES (34 total)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  Core Business:
+    Clients         → /clients           { id, business_name, first_name,
+                                            last_name, email, phone, ... }
+    Products        → /products          { id, name, sku, price, cost, ... }
+    Product Categories → /product_categories
+    Invoices        → /invoices          { id, client_id, store_id, date,
+                                            items: [{item, qty, price}], ... }
+    Estimates       → /estimates         (same structure as invoices)
+    Credit Notes    → /credit_notes      (same structure as invoices)
+    Refund Receipts → /refund_receipts   (same structure as invoices)
+    Purchase Invoices  → /purchase_invoices  (supplier purchases)
+    Purchase Refunds   → /purchase_refunds
+    Suppliers       → /suppliers         (vendors)
+    Work Orders     → /work_orders       { client_id, staff_id, subject, ... }
+    Stores          → /stores            (warehouses/branches)
+    Stock Transactions → /stock_transactions  (inventory movements)
+
+  Financial:
+    Expenses        → /expenses
+    Incomes         → /incomes
+    Journals        → /journals
+    Journal Accounts → /journal_accounts
+    Journal Cats    → /journal_cats
+    Taxes           → /taxes
+    Treasuries      → /treasuries        (payment accounts)
+
+  Payments:
+    Client Payments   → /client_payments
+    Invoice Payments  → /invoice_payments
+
+  Appointments:
+    Client Appointments   → /client_appointments
+    Invoice Appointments  → /invoice_appointments
+    Estimate Appointments → /estimate_appointments
+    Work Order Appointments → /work_order_appointments
+
+  Other:
+    Notes            → /notes
+    Time Tracking    → /time_tracking
+    Staff            → /staff
+    Follow Up Actions  → /follow_up_actions
+    Follow Up Statuses → /follow_up_statuses
+    Client Attendance Log → /client_attendance_logs
+    General Listing  → /general_listing  (read-only, lookup lists)
+    Site             → /site             (read-only, site info)
+
+  6.3 DAFTRA API SPECIFICATIONS
+  ────────────────────────────────────────────────────────────────────────────────
+
+  Base URL:     https://{subdomain}.daftra.com/api2/
+  Auth Header:  APIKEY: {your-api-key}
+  Content-Type: application/json
+
+  Standard CRUD endpoints per module:
+    GET    /{module}.json              List all (paginated)
+    GET    /{module}/{id}.json         Get single
+    POST   /{module}.json              Create new
+    PUT    /{module}/{id}.json         Update existing
+    DELETE /{module}/{id}.json         Delete
+
+  Request body format (create/update):
+    { "ModuleName": { field1: value1, field2: value2 },
+      "RelatedItems": [{ item1 }, { item2 }] }
+
+  Response format:
+    { "code": 200|202,
+      "result": "successful"|"failed",
+      "id": 123,                    // Only on create
+      "data": { "ModuleName": { ... } },
+      "pagination": { "total": 100, "current_page": 1, "per_page": 20 } }
+
+  Query parameters:
+    limit       int     Items per page (1-1000, default 20)
+    page        int     Page number
+    client_id   int     Filter by client
+    product_id  int     Filter by product
+    supplier_id int     Filter by supplier
+    store_id    int     Filter by store/warehouse
+    staff_id    int     Filter by staff
+    status      string  Filter by status
+    date_from   string  Start date (Y-m-d)
+    date_to     string  End date (Y-m-d)
+    search      string  Text search
+
+
+================================================================================
+  7. FRONTEND COMPONENTS (Alpine.js)
+================================================================================
+
+  7.1 voiceCapture (resources/js/voice-orders.js)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  State:
+    isRecording      bool     Currently recording
+    transcript       string   Current transcript text
+    isEditing        bool     Show textarea vs plain text
+    isFixing         bool     AI correction in progress
+    isSending        bool     Order submission in progress
+    error            string   Error message
+    successMessage   string   Success message
+    daftraDomain     string   User's Daftra subdomain
+    daftraApiKey     string   User's Daftra API key
+    daftraResult     object   Last Daftra response
+
+  Methods:
+    toggleRecording()       Start/stop microphone
+    startRecording()        Get ElevenLabs token, open WebSocket
+    stopRecording()         Close WebSocket, enable editing
+    suggestCorrection()     POST /api/transcript/suggest → update transcript
+    interpretQuery()        POST /api/daftra/interpret → show intent
+    sendOrder()             POST /api/orders or /api/orders/daftra
+    clearTranscript()       Reset all state
+
+  7.2 orderHistory (resources/js/voice-orders.js)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  State:
+    orders   array    Paginated order list
+    loading  bool     Loading indicator
+
+  Methods:
+    init()           Auto-load on component init
+    loadOrders()     GET /api/orders → populate list
+
+
+================================================================================
+  8. FILAMENT ADMIN PANEL
+================================================================================
+
+  Path: /admin
+  Panel ID: admin
+
+  Resources (auto-discovered from app/Filament/Resources/):
+    - Orders             View/manage all orders
+    - Users              User management
+    - SubscriptionPlans  Plan CRUD
+    - UsageLogs          Read-only usage logs
+    - WebhookEndpoints   Webhook endpoint CRUD
+
+  Key features:
+    - Amber color scheme
+    - Login required
+    - Standard CRUD with search, filter, pagination
+
+
+================================================================================
+  9. CONFIGURATION
+================================================================================
+
+  config/services.php:
+    'elevenlabs' => [ 'api_key' => env('ELEVENLABS_API_KEY') ],
+    'openai'     => [ 'api_key' => env('OPENAI_API_KEY') ],
+
+  .env (required):
+    ELEVENLABS_API_KEY=...
+    OPENAI_API_KEY=...
+    DB_CONNECTION=mysql
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=voice_orders
+    DB_USERNAME=root
+    DB_PASSWORD=...
+
+  Queue: database driver (config/queue.php)
+  Cache/Session: database driver
+
+
+================================================================================
+  10. STUB / INCOMPLETE COMPONENTS
+================================================================================
+
+  1. CheckQuota middleware (app/Http/Middleware/CheckQuota.php)
+     Status: STUB — just passes through ($next($request))
+     Note: Quota check is currently done inline in OrderController@store
+     TODO: Implement middleware and apply to API routes
+
+  2. WebhookEndpointController (app/Http/Controllers/WebhookEndpointController.php)
+     Status: STUB — all methods empty
+     Note: Webhook endpoints are managed through Filament admin panel, not API
+     TODO: Implement if user-facing API CRUD is needed
+
+  3. Default monthly_quota on new users
+     Status: Not set
+     Note: monthly_quota defaults to NULL in database
+     TODO: Set default (e.g. 100) on user registration or via migration
+
+
+================================================================================
+  11. RUNNING THE APPLICATION
+================================================================================
+
+  1. Database setup:
+       php artisan migrate
+
+  2. Build frontend:
+       npm install && npm run build
+
+  3. Start queue worker (for webhook dispatch):
+       php artisan queue:work
+
+  4. Start dev server:
+       php artisan serve
+
+  5. Schedule (for quota resets):
+       php artisan schedule:work
+       OR add to crontab: * * * * * php /path/to/artisan schedule:run >> /dev/null 2>&1
+
+
+================================================================================
+  END OF DOCUMENT
+================================================================================

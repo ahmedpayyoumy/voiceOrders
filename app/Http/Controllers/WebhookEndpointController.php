@@ -2,47 +2,55 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\WebhookEndpointRequest;
+use App\Models\WebhookEndpoint;
 use Illuminate\Http\Request;
 
 class WebhookEndpointController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(Request $request)
     {
-        //
+        return $request->user()->webhookEndpoints()->latest()->paginate(20);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+    public function store(WebhookEndpointRequest $request)
     {
-        //
+        $data = $request->validated();
+        $data['user_id'] = $request->user()->id;
+
+        $endpoint = WebhookEndpoint::create($data);
+
+        return response()->json($endpoint, 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
+    public function show(Request $request, WebhookEndpoint $webhookEndpoint)
     {
-        //
+        if ($webhookEndpoint->user_id !== $request->user()->id) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        return response()->json($webhookEndpoint);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
+    public function update(WebhookEndpointRequest $request, WebhookEndpoint $webhookEndpoint)
     {
-        //
+        if ($webhookEndpoint->user_id !== $request->user()->id) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $webhookEndpoint->update($request->validated());
+
+        return response()->json($webhookEndpoint);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function destroy(Request $request, WebhookEndpoint $webhookEndpoint)
     {
-        //
+        if ($webhookEndpoint->user_id !== $request->user()->id) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $webhookEndpoint->delete();
+
+        return response()->json(['message' => 'Webhook endpoint deleted'], 200);
     }
 }

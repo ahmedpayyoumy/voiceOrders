@@ -11,7 +11,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'monthly_quota', 'used_this_month', 'quota_reset_at'])]
+#[Fillable(['name', 'email', 'password', 'monthly_quota', 'used_this_month', 'quota_reset_at', 'daftra_domain', 'daftra_api_key'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -24,6 +24,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'quota_reset_at' => 'datetime',
+            'daftra_api_key' => 'encrypted',
         ];
     }
 
