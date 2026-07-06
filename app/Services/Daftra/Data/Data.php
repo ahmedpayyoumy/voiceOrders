@@ -18,6 +18,7 @@ abstract class Data
                         : $value);
             }
         }
+
         return [$this->moduleKey() => $data];
     }
 
@@ -28,12 +29,13 @@ abstract class Data
 
     public static function fromArray(array $data): static
     {
-        $instance = new static();
+        $instance = new static;
         foreach ($data as $key => $value) {
             if (property_exists($instance, $key)) {
                 $instance->{$key} = $value;
             }
         }
+
         return $instance;
     }
 }

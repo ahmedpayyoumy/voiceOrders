@@ -17,6 +17,15 @@ class DaftraOrderRequest extends FormRequest
             'transcript' => 'required|string',
             'daftra_domain' => 'required|string|max:255',
             'daftra_api_key' => 'required|string',
+            'selected_customer_id' => 'nullable|integer',
+            'selected_product_id' => 'nullable|integer',
+            'selected_product_query' => 'nullable|string',
+            'confirmed' => 'nullable|boolean',
+            'items' => 'nullable|array',
+            'items.*.product_id' => 'required_with:items|integer',
+            'items.*.product_name' => 'required_with:items|string',
+            'items.*.quantity' => 'required_with:items|numeric|min:0.01',
+            'items.*.price' => 'required_with:items|numeric|min:0',
         ];
     }
 }

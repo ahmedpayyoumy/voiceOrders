@@ -3,7 +3,9 @@
 namespace App\Services\Daftra;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class DaftraClient
 {
@@ -42,7 +44,7 @@ class DaftraClient
         return $this->handleResponse($this->http->delete($path));
     }
 
-    private function handleResponse(\Illuminate\Http\Client\Response $response): DaftraResponse
+    private function handleResponse(Response $response): DaftraResponse
     {
         $wrapped = new DaftraResponse($response);
 
@@ -52,7 +54,7 @@ class DaftraClient
                 404 => DaftraException::notFound(),
                 422 => DaftraException::validationError($wrapped->raw),
                 default => new DaftraException(
-                    $wrapped->raw['message'] ?? 'Daftra API error',
+                    ($wrapped->raw['message'] ?? 'Daftra API error').' | Response: '.json_encode($wrapped->raw),
                     $response->status(),
                     null,
                     $wrapped->raw,
@@ -65,7 +67,7 @@ class DaftraClient
 
     public function module(string $name): Resources\Resource
     {
-        $name = \Illuminate\Support\Str::singular($name);
+        $name = Str::singular($name);
         $resourceClass = 'App\\Services\\Daftra\\Resources\\'.ucfirst($name).'Resource';
 
         if (! class_exists($resourceClass)) {

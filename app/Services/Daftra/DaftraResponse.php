@@ -7,10 +7,15 @@ use Illuminate\Http\Client\Response;
 class DaftraResponse
 {
     public readonly int $code;
+
     public readonly string $result;
+
     public readonly ?int $id;
+
     public readonly ?array $data;
+
     public readonly ?array $pagination;
+
     public readonly array $raw;
 
     public function __construct(Response $response)
@@ -36,6 +41,7 @@ class DaftraResponse
     public function entityList(string $key): array
     {
         $list = $this->data ?? [];
+
         return array_map(fn ($item) => $item[$key] ?? $item, $list);
     }
 }

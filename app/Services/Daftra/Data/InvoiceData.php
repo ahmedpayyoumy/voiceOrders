@@ -20,6 +20,7 @@ class InvoiceData extends Data
         public readonly ?string $client_postal_code = null,
         public readonly ?string $client_country_code = null,
         public readonly ?string $date = null,
+        public readonly ?string $issue_date = null,
         public readonly ?string $notes = null,
         public readonly ?string $po_number = null,
         public readonly ?bool $draft = null,
@@ -43,6 +44,11 @@ class InvoiceData extends Data
                 fn (InvoiceItemData $item) => $item->toArray()['InvoiceItem'] ?? $item->toArray(),
                 $this->items,
             );
+        }
+
+        if ($this->issue_date !== null) {
+            $body['Invoice']['date'] = $this->issue_date;
+            unset($body['Invoice']['issue_date']);
         }
 
         return $body;

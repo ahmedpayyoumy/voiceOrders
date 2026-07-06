@@ -42,7 +42,7 @@ class ResponseFormatter
         }
 
         if ($count > 5) {
-            $lines[] = "... and " . ($total - 5) . " more.";
+            $lines[] = '... and '.($total - 5).' more.';
         }
 
         return implode("\n", $lines);
@@ -62,7 +62,8 @@ class ResponseFormatter
     {
         $id = $response->id;
         $module = $intent->module;
-        return "{$module} created successfully" . ($id ? " (ID: {$id})." : ".");
+
+        return "{$module} created successfully".($id ? " (ID: {$id})." : '.');
     }
 
     private function formatUpdate(DaftraResponse $response, Intent $intent): string
@@ -78,6 +79,7 @@ class ResponseFormatter
     private function formatCount(DaftraResponse $response, Intent $intent): string
     {
         $total = $response->pagination['total'] ?? count($response->entityList(ucfirst($intent->module)));
+
         return "Total {$intent->module}: {$total}.";
     }
 
@@ -85,7 +87,7 @@ class ResponseFormatter
     {
         return match ($module) {
             'clients' => sprintf(
-                "- #%s %s %s (%s)",
+                '- #%s %s %s (%s)',
                 $entity['id'] ?? '?',
                 $entity['first_name'] ?? '',
                 $entity['last_name'] ?? $entity['business_name'] ?? '',
@@ -93,33 +95,33 @@ class ResponseFormatter
             ),
             'invoices', 'estimates', 'credit_notes', 'refund_receipts',
             'purchase_invoices', 'purchase_refunds' => sprintf(
-                "- #%s (%s) - %s - Total: %s",
+                '- #%s (%s) - %s - Total: %s',
                 $entity['id'] ?? '?',
                 $entity['no'] ?? $entity['name'] ?? 'no number',
                 $entity['date'] ?? '',
                 $entity['summary_total'] ?? $entity['total'] ?? '0',
             ),
             'products' => sprintf(
-                "- #%s %s (SKU: %s) - %s",
+                '- #%s %s (SKU: %s) - %s',
                 $entity['id'] ?? '?',
                 $entity['name'] ?? '',
                 $entity['sku'] ?? 'N/A',
                 $entity['price'] ?? '0',
             ),
             'suppliers' => sprintf(
-                "- #%s %s (%s)",
+                '- #%s %s (%s)',
                 $entity['id'] ?? '?',
                 $entity['business_name'] ?? "{$entity['first_name']} {$entity['last_name']}",
                 $entity['email'] ?? 'no email',
             ),
             'stock_transactions' => sprintf(
-                "- #%s Product #%s: %s x %s",
+                '- #%s Product #%s: %s x %s',
                 $entity['id'] ?? '?',
                 $entity['product_id'] ?? '?',
                 $entity['quantity'] ?? '0',
                 $entity['type'] ?? 'movement',
             ),
-            default => sprintf("- #%s %s", $entity['id'] ?? '?', json_encode($entity)),
+            default => sprintf('- #%s %s', $entity['id'] ?? '?', json_encode($entity)),
         };
     }
 }

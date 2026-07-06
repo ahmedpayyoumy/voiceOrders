@@ -8,19 +8,20 @@ use App\Services\Daftra\Interpreter\Intent;
 use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Interpreter\QueryInterpreter;
 use App\Services\Daftra\Interpreter\ResponseFormatter;
-use App\Services\Daftra\Query\DaftraQuery;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Http;
 
 class DaftraService
 {
     private QueryInterpreter $interpreter;
+
     private ResponseFormatter $formatter;
 
     public function __construct(
         private readonly DaftraClient $client,
     ) {
-        $this->interpreter = new QueryInterpreter();
-        $this->formatter = new ResponseFormatter();
+        $this->interpreter = new QueryInterpreter;
+        $this->formatter = new ResponseFormatter;
     }
 
     public function client(): DaftraClient
@@ -165,7 +166,7 @@ class DaftraService
             return [
                 'success' => true,
                 'daftra_response' => new DaftraResponse(
-                    (new \Illuminate\Http\Client\Response(new \GuzzleHttp\Psr7\Response(
+                    (new \Illuminate\Http\Client\Response(new Response(
                         $response->successful() ? 200 : 400,
                         [],
                         json_encode($response->raw),

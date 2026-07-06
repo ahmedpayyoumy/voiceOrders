@@ -29,6 +29,7 @@ class ProcessOrderWebhooks implements ShouldQueue
 
         if ($endpoints->isEmpty()) {
             $this->order->update(['status' => 'sent']);
+
             return;
         }
 

@@ -2,7 +2,6 @@
 
 namespace App\Services\Daftra\Interpreter;
 
-use App\Services\Daftra\Query\DaftraQuery;
 use Illuminate\Support\Facades\Http;
 
 class QueryInterpreter

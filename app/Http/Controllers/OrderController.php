@@ -8,7 +8,14 @@ use App\Jobs\ProcessOrderWebhooks;
 use App\Models\Order;
 use App\Models\UsageLog;
 use App\Services\Daftra\DaftraClient;
+use App\Services\Daftra\DaftraException;
 use App\Services\Daftra\DaftraService;
+use App\Services\Daftra\Data\InvoiceData;
+use App\Services\Daftra\Data\InvoiceItemData;
+use App\Services\Daftra\Resources\ClientResource;
+use App\Services\Daftra\Resources\InvoiceResource;
+use App\Services\Daftra\VoiceInvoiceBuilder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class OrderController extends Controller
@@ -48,48 +55,149 @@ class OrderController extends Controller
     public function sendToDaftra(DaftraOrderRequest $request)
     {
         $user = $request->user();
+        $client = new DaftraClient($request->daftra_domain, $request->daftra_api_key);
 
-        $daftra = new DaftraService(
-            new DaftraClient($request->daftra_domain, $request->daftra_api_key)
-        );
-
-        $result = $daftra->processVoiceOrder(
-            transcript: $request->transcript,
-            apiKey: $request->daftra_api_key,
-            domain: $request->daftra_domain,
-        );
-
-        if (! $result['success']) {
-            return response()->json(['error' => $result['error'] ?? 'Failed to process order'], 500);
+        // Confirmed path: skip re-parsing, use submitted items directly
+        if ($request->confirmed) {
+            return $this->createInvoiceFromConfirmed($request, $user, $client);
         }
 
-        $order = Order::create([
-            'user_id' => $user->id,
-            'transcript' => $request->transcript,
-            'parsed_data' => $result['parsed'] ?? null,
-            'status' => 'sent',
-            'response_log' => isset($result['daftra_response'])
-                ? [['daftra' => $result['daftra_response']->raw]]
-                : null,
-        ]);
+        $invoiceBuilder = new VoiceInvoiceBuilder($client);
 
-        UsageLog::create([
-            'user_id' => $user->id,
-            'action' => 'daftra_order',
-            'metadata' => [
-                'order_id' => $order->id,
-                'domain' => $request->daftra_domain,
-                'items' => $result['parsed']['items'] ?? [],
-            ],
-        ]);
+        // Step 1: Prepare invoice with smart product matching
+        $preparation = $invoiceBuilder->prepareInvoice(
+            $request->transcript,
+            $request->selected_customer_id,
+            $request->selected_product_id,
+            $request->selected_product_query
+        );
 
-        $user->increment('used_this_month');
+        // Step 2: If needs clarification, return question
+        if ($preparation->needsClarification()) {
+            $response = [
+                'status' => 'needs_clarification',
+                'question' => $preparation->question,
+                'alternatives' => $preparation->alternatives,
+                'matched_items' => $preparation->lineItems,
+                'clarification_type' => $preparation->status,
+            ];
 
+            if ($preparation->customer) {
+                $response['customer'] = $preparation->customer;
+            }
+
+            if ($preparation->productQuery) {
+                $response['product_query'] = $preparation->productQuery;
+            }
+
+            return response()->json($response);
+        }
+
+        // Step 3: If preparation failed
+        if ($preparation->status === 'failed') {
+            return response()->json([
+                'error' => $preparation->error,
+            ], 422);
+        }
+
+        // Step 4: Return confirmation preview
         return response()->json([
-            'order' => $order,
-            'parsed' => $result['parsed'] ?? null,
-            'daftra' => $result['daftra_response'] ?? null,
-        ], 201);
+            'status' => 'needs_confirmation',
+            'customer' => $preparation->customer,
+            'items' => $preparation->lineItems,
+            'total' => $preparation->total,
+            'original_transcript' => $request->transcript,
+        ]);
+    }
+
+    private function createInvoiceFromConfirmed(DaftraOrderRequest $request, $user, DaftraClient $client): JsonResponse
+    {
+        $items = $request->items ?? [];
+
+        // Fetch client from Daftra for display data
+        $clientResource = new ClientResource($client);
+        $customerData = [];
+
+        try {
+            $customerResponse = $clientResource->get((int) $request->selected_customer_id);
+            $customerData = $customerResponse->data['Client'] ?? $customerResponse->data;
+        } catch (DaftraException) {
+            $customerData = ['id' => $request->selected_customer_id, 'name' => 'Client #'.$request->selected_customer_id];
+        }
+
+        $invoiceResource = new InvoiceResource($client);
+
+        try {
+            $response = $invoiceResource->create(
+                new InvoiceData(
+                    client_id: (int) ($customerData['id'] ?? $request->selected_customer_id),
+                    issue_date: now()->format('Y-m-d'),
+                    items: array_map(
+                        fn ($item) => new InvoiceItemData(
+                            product_id: (int) $item['product_id'],
+                            quantity: (float) $item['quantity'],
+                            unit_price: (float) $item['price'],
+                        ),
+                        $items
+                    ),
+                )
+            );
+
+            $invoiceId = $response->id;
+            $invoiceNumber = $response->raw['invoice_number'] ?? ('#'.$invoiceId);
+
+            $order = Order::create([
+                'user_id' => $user->id,
+                'transcript' => $request->transcript,
+                'parsed_data' => [
+                    'items' => $items,
+                    'customer_id' => $request->selected_customer_id,
+                    'invoice_number' => $invoiceNumber,
+                    'invoice_id' => $invoiceId,
+                ],
+                'status' => 'sent',
+                'response_log' => [['daftra' => $response->raw]],
+            ]);
+
+            UsageLog::create([
+                'user_id' => $user->id,
+                'action' => 'daftra_invoice',
+                'metadata' => [
+                    'order_id' => $order->id,
+                    'invoice_id' => $invoiceId,
+                    'invoice_number' => $invoiceNumber,
+                    'total' => array_sum(array_column($items, 'total')) ?: 0,
+                ],
+            ]);
+
+            $user->increment('used_this_month');
+
+            return response()->json([
+                'status' => 'success',
+                'order' => $order,
+                'invoice' => $response->raw,
+                'preview' => [
+                    'customer' => $customerData['business_name'] ?? $customerData['name'],
+                    'items' => $items,
+                    'total' => array_sum(array_column($items, 'total')) ?: 0,
+                    'invoice_number' => $invoiceNumber,
+                ],
+            ], 201);
+
+        } catch (DaftraException $e) {
+            logger()->error('Daftra create invoice failed', [
+                'message' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'response' => $e->responseData,
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Daftra API error: '.$e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_response' => $e->responseData,
+            ], 500);
+        }
     }
 
     public function interpret(DaftraInterpretRequest $request)

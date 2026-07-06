@@ -28,6 +28,7 @@ class DaftraException extends Exception
     public static function validationError(array $errors, ?array $data = null): self
     {
         $message = 'Daftra validation failed: '.json_encode($errors);
+
         return new self($message, 422, null, $data);
     }
 

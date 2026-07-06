@@ -5,33 +5,42 @@ namespace App\Services\Daftra\Query;
 class DaftraQuery
 {
     private array $filters = [];
+
     private array $params = [];
+
     private int $limit = 20;
+
     private int $page = 1;
+
     private ?string $sortField = null;
+
     private ?string $sortDirection = null;
 
     public function where(string $field, mixed $value): static
     {
         $this->filters[] = new DaftraFilter($field, $value);
+
         return $this;
     }
 
     public function whereClient(int|string $client): static
     {
         $field = is_int($client) ? 'client_id' : 'client_business_name';
+
         return $this->where($field, $client);
     }
 
     public function whereProduct(int|string $product): static
     {
         $field = is_int($product) ? 'id' : 'item';
+
         return $this->where($field, $product);
     }
 
     public function whereSupplier(int|string $supplier): static
     {
         $field = is_int($supplier) ? 'supplier_id' : 'business_name';
+
         return $this->where($field, $supplier);
     }
 
@@ -54,24 +63,28 @@ class DaftraQuery
     {
         $this->params['date_from'] = $from;
         $this->params['date_to'] = $to;
+
         return $this;
     }
 
     public function whereDateFrom(string $date): static
     {
         $this->params['date_from'] = $date;
+
         return $this;
     }
 
     public function whereDateTo(string $date): static
     {
         $this->params['date_to'] = $date;
+
         return $this;
     }
 
     public function search(string $term): static
     {
         $this->params['search'] = $term;
+
         return $this;
     }
 
@@ -79,6 +92,7 @@ class DaftraQuery
     {
         $this->limit = min(max($limit, 1), 1000);
         $this->page = max($page, 1);
+
         return $this;
     }
 
@@ -86,6 +100,7 @@ class DaftraQuery
     {
         $this->sortField = $field;
         $this->sortDirection = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+
         return $this;
     }
 

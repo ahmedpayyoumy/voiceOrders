@@ -43,7 +43,7 @@ class Intent
 
     public function toQuery(): DaftraQuery
     {
-        $query = new DaftraQuery();
+        $query = new DaftraQuery;
 
         foreach ($this->filters as $field => $value) {
             $query->where($field, $value);

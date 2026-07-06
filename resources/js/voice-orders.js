@@ -13,7 +13,7 @@ function apiFetch(url, options = {}) {
     });
 }
 
-export function voiceCapture() {
+export function voiceCapture(defaults = {}) {
     return {
         isRecording: false,
         transcript: '',
@@ -25,11 +25,30 @@ export function voiceCapture() {
         isEditing: false,
         isFixing: false,
 
-        daftraDomain: '',
-        daftraApiKey: '',
+        daftraDomain: defaults.daftraDomain || '',
+        daftraApiKey: defaults.daftraApiKey || '',
         showDaftraFields: true,
         daftraResult: null,
         saveCredentials: false,
+
+        // New: Product clarification state
+        clarificationNeeded: false,
+        clarificationType: '', // 'customer' or 'product'
+        clarificationQuestion: '',
+        alternatives: [],
+        matchedItems: [],
+        invoicePreview: null,
+        productQuery: '',
+        selectedCustomerId: null,
+        selectedCustomer: null,
+        selectedProductName: null,
+
+        // Confirmation step
+        needsConfirmation: false,
+        confirmationCustomer: null,
+        confirmationItems: [],
+        confirmationTotal: 0,
+        isConfirming: false,
 
         async init() {
             try {
@@ -196,87 +215,232 @@ export function voiceCapture() {
             this.isSending = true;
             this.error = '';
             this.successMessage = '';
+            this.clarificationNeeded = false;
+            this.clarificationType = '';
+            this.clarificationQuestion = '';
+            this.alternatives = [];
+            this.matchedItems = [];
+            this.invoicePreview = null;
+            this.productQuery = '';
+            this.selectedCustomerId = null;
+            this.selectedCustomer = null;
+            this.selectedProductName = null;
+            this.needsConfirmation = false;
+            this.confirmationCustomer = null;
+            this.confirmationItems = [];
+            this.confirmationTotal = 0;
 
             try {
-                const credsProvided = this.daftraDomain && this.daftraApiKey;
+                if (!this.daftraDomain || !this.daftraApiKey) {
+                    this.error = 'Please provide Daftra domain and API key';
+                    return;
+                }
 
-                const interpretRes = await apiFetch('/api/daftra/interpret', {
+                const res = await apiFetch('/api/orders/daftra', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         transcript: this.transcript,
-                        daftra_domain: this.daftraDomain || null,
-                        daftra_api_key: this.daftraApiKey || null,
+                        daftra_domain: this.daftraDomain,
+                        daftra_api_key: this.daftraApiKey,
                     }),
                 });
 
-                const interpretData = await interpretRes.json();
+                const data = await res.json();
+                console.debug('[sendOrder] response:', data);
 
-                if (!interpretRes.ok) {
-                    this.error = interpretData.error || 'Failed to interpret transcript';
-                    return;
-                }
-
-                if (interpretData.needs_clarification) {
-                    this.error = interpretData.question || 'Could not understand the request';
-                    this.daftraResult = interpretData;
-                    return;
-                }
-
-                const intentType = interpretData.intent?.type;
-
-                if (intentType !== 'create') {
-                    this.daftraResult = interpretData;
-                    if (interpretData.formatted) {
-                        this.successMessage = interpretData.formatted;
-                        setTimeout(() => this.successMessage = '', 10000);
-                    }
-                    return;
-                }
-
-                const body = credsProvided
-                    ? {
-                        transcript: this.transcript,
-                        daftra_domain: this.daftraDomain,
-                        daftra_api_key: this.daftraApiKey,
-                    }
-                    : { transcript: this.transcript };
-
-                const res = await apiFetch(
-                    credsProvided ? '/api/orders/daftra' : '/api/orders',
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body),
-                    }
+                const needsClarification = Boolean(
+                    data.status === 'needs_clarification' ||
+                    data.needs_clarification ||
+                    (data.question && Array.isArray(data.alternatives))
                 );
 
-                if (res.ok) {
-                    const data = await res.json();
-
-                    if (data.daftra) {
-                        this.successMessage = 'Order sent to Daftra! Invoice ID: ' + (data.daftra.id || 'created');
-                        this.daftraResult = data.daftra;
-                        setTimeout(() => this.successMessage = '', 5000);
-                    } else {
-                        this.successMessage = 'Order sent successfully!';
-                        setTimeout(() => this.successMessage = '', 3000);
+                // Handle clarification needed
+                if (needsClarification) {
+                    this.clarificationNeeded = true;
+                    this.clarificationType = data.clarification_type || 'product';
+                    this.clarificationQuestion = data.question || 'Which one did you mean?';
+                    this.alternatives = data.alternatives || [];
+                    this.matchedItems = data.matched_items || [];
+                    this.productQuery = data.product_query || '';
+                    this.daftraResult = data;
+                    this.error = '';
+                    if (data.customer) {
+                        this.selectedCustomerId = data.customer.Client?.id ?? null;
+                        this.selectedCustomer = data.customer;
                     }
+                    return;
+                }
 
-                    if (this.saveCredentials && credsProvided) {
+                if (!res.ok) {
+                    this.error = data.error || 'Failed to create invoice';
+                    return;
+                }
+
+                // Success - invoice created
+                if (data.status === 'success') {
+                    this.invoicePreview = data.preview;
+                    this.successMessage = `Invoice created! ${data.preview.customer} - ${data.preview.total} SAR`;
+                    
+                    if (this.saveCredentials) {
                         this.saveDaftraCredentials();
                     }
 
-                    this.transcript = '';
-                    this.isEditing = false;
-                } else {
-                    const errData = await res.json();
-                    this.error = errData.error || 'Failed to send order';
+                    setTimeout(() => {
+                        this.successMessage = '';
+                        this.transcript = '';
+                        this.isEditing = false;
+                        this.invoicePreview = null;
+                    }, 5000);
                 }
+
             } catch (err) {
-                this.error = 'Network error';
+                this.error = 'Network error: ' + err.message;
             } finally {
                 this.isSending = false;
+            }
+        },
+
+        async selectAlternative(alternative) {
+            console.debug('[selectAlternative] type:', this.clarificationType, 'alt:', alternative);
+            this.clarificationNeeded = false;
+            this.error = '';
+
+            if (this.clarificationType === 'needs_customer') {
+                const customerId = alternative.Client?.id;
+                if (!customerId) return;
+
+                this.selectedCustomerId = customerId;
+                this.isSending = true;
+                try {
+                    const res = await apiFetch('/api/orders/daftra', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            transcript: this.transcript,
+                            daftra_domain: this.daftraDomain,
+                            daftra_api_key: this.daftraApiKey,
+                            selected_customer_id: customerId,
+                        }),
+                    });
+
+                    const data = await res.json();
+                    this.handleOrderResponse(data);
+                } catch (err) {
+                    this.error = 'Network error: ' + err.message;
+                } finally {
+                    this.isSending = false;
+                }
+                return;
+            }
+
+            if (this.clarificationType === 'needs_product') {
+                const productId = alternative.Product?.id;
+                const productQuery = this.productQuery;
+                if (!productId || !productQuery) {
+                    console.debug('[selectAlternative] missing productId or productQuery', {productId, productQuery});
+                    return;
+                }
+
+                this.selectedProductName = alternative.Product?.name || productQuery;
+                this.isSending = true;
+                console.debug('[selectAlternative] sending product selection', {productId, productQuery, customerId: this.selectedCustomerId});
+                try {
+                    const res = await apiFetch('/api/orders/daftra', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            transcript: this.transcript,
+                            daftra_domain: this.daftraDomain,
+                            daftra_api_key: this.daftraApiKey,
+                            selected_customer_id: this.selectedCustomerId,
+                            selected_product_id: productId,
+                            selected_product_query: productQuery,
+                        }),
+                    });
+
+                    const data = await res.json();
+                    this.handleOrderResponse(data);
+                } catch (err) {
+                    this.error = 'Network error: ' + err.message;
+                } finally {
+                    this.isSending = false;
+                }
+                return;
+            }
+        },
+
+        handleOrderResponse(data) {
+            console.debug('[handleOrderResponse]', data);
+            this.daftraResult = data;
+
+            if (data.status === 'success') {
+                this.invoicePreview = data.preview;
+                this.successMessage = `Invoice ${data.preview.invoice_number} created! ${data.preview.customer} - ${data.preview.total} SAR`;
+                if (this.saveCredentials) this.saveDaftraCredentials();
+                setTimeout(() => {
+                    this.successMessage = '';
+                    this.transcript = '';
+                    this.isEditing = false;
+                    this.invoicePreview = null;
+                }, 5000);
+            } else if (data.status === 'needs_confirmation') {
+                this.needsConfirmation = true;
+                this.confirmationCustomer = data.customer;
+                this.confirmationItems = (data.items || []).map(item => ({ ...item }));
+                this.confirmationTotal = data.total || 0;
+                if (data.customer) {
+                    this.selectedCustomerId = data.customer.Client?.id ?? null;
+                    this.selectedCustomer = data.customer;
+                }
+            } else if (data.needs_clarification || data.status === 'needs_clarification') {
+                this.clarificationNeeded = true;
+                this.clarificationType = data.clarification_type || 'product';
+                this.clarificationQuestion = data.question || 'Which one did you mean?';
+                this.alternatives = data.alternatives || [];
+                this.matchedItems = data.matched_items || [];
+                this.productQuery = data.product_query || '';
+                if (data.customer) {
+                    this.selectedCustomerId = data.customer.Client?.id ?? null;
+                    this.selectedCustomer = data.customer;
+                }
+            } else if (data.error) {
+                this.error = data.error;
+            }
+        },
+
+        async confirmOrder() {
+            if (!this.confirmationItems.length || !this.selectedCustomerId) return;
+
+            this.isConfirming = true;
+            this.error = '';
+            this.successMessage = '';
+
+            try {
+                const res = await apiFetch('/api/orders/daftra', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transcript: this.transcript,
+                        daftra_domain: this.daftraDomain,
+                        daftra_api_key: this.daftraApiKey,
+                        confirmed: true,
+                        selected_customer_id: this.selectedCustomerId,
+                        selected_product_id: this.confirmationItems[0]?.product_id || null,
+                        items: this.confirmationItems,
+                    }),
+                });
+
+                const data = await res.json();
+                this.needsConfirmation = false;
+                this.confirmationCustomer = null;
+                this.confirmationItems = [];
+                this.confirmationTotal = 0;
+                this.handleOrderResponse(data);
+            } catch (err) {
+                this.error = 'Network error: ' + err.message;
+            } finally {
+                this.isConfirming = false;
             }
         },
 
@@ -312,6 +476,13 @@ export function voiceCapture() {
             this.successMessage = '';
             this.isEditing = false;
             this.daftraResult = null;
+            this.selectedCustomerId = null;
+            this.selectedCustomer = null;
+            this.selectedProductName = null;
+            this.needsConfirmation = false;
+            this.confirmationCustomer = null;
+            this.confirmationItems = [];
+            this.confirmationTotal = 0;
         },
     };
 }
