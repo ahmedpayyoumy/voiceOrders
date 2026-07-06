@@ -12,6 +12,7 @@ use App\Services\Daftra\DaftraException;
 use App\Services\Daftra\DaftraService;
 use App\Services\Daftra\Data\InvoiceData;
 use App\Services\Daftra\Data\InvoiceItemData;
+use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Resources\ClientResource;
 use App\Services\Daftra\Resources\InvoiceResource;
 use App\Services\Daftra\VoiceInvoiceBuilder;
@@ -207,22 +208,79 @@ class OrderController extends Controller
         $domain = $request->daftra_domain;
         $apiKey = $request->daftra_api_key;
 
-        if ($domain && $apiKey) {
-            $daftra = new DaftraService(new DaftraClient($domain, $apiKey));
-            $result = $daftra->interpretAndExecute($request->transcript);
-        } else {
+        if (! $domain || ! $apiKey) {
             $daftra = new DaftraService(
                 new DaftraClient('placeholder', 'placeholder')
             );
             $intent = $daftra->interpret($request->transcript);
-            $result = [
+
+            return response()->json([
                 'success' => true,
                 'intent' => $intent->toArray(),
                 'needs_clarification' => ! $intent->isComplete,
                 'question' => $intent->clarification,
-            ];
+            ]);
         }
 
-        return response()->json($result);
+        $client = new DaftraClient($domain, $apiKey);
+        $daftra = new DaftraService($client);
+        $intent = $daftra->interpret($request->transcript);
+
+        // If create invoice, delegate to the voice order pipeline
+        if ($intent->type === IntentType::Create && $intent->module === 'invoices') {
+            $invoiceBuilder = new VoiceInvoiceBuilder($client);
+
+            $preparation = $invoiceBuilder->prepareInvoice(
+                $request->transcript,
+                null, null, null, [],
+            );
+
+            if ($preparation->needsClarification()) {
+                $response = [
+                    'status' => 'needs_clarification',
+                    'question' => $preparation->question,
+                    'alternatives' => $preparation->alternatives,
+                    'matched_items' => $preparation->lineItems,
+                    'clarification_type' => $preparation->status,
+                ];
+
+                if ($preparation->customer) {
+                    $response['customer'] = $preparation->customer;
+                }
+
+                if ($preparation->productQuery) {
+                    $response['product_query'] = $preparation->productQuery;
+                }
+
+                return response()->json($response);
+            }
+
+            if ($preparation->status === 'failed') {
+                return response()->json([
+                    'error' => $preparation->error,
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => 'needs_confirmation',
+                'customer' => $preparation->customer,
+                'items' => $preparation->lineItems,
+                'total' => $preparation->total,
+                'original_transcript' => $request->transcript,
+            ]);
+        }
+
+        // Handle incomplete intents for non-invoice paths
+        if (! $intent->isComplete) {
+            return response()->json([
+                'success' => true,
+                'intent' => $intent->toArray(),
+                'needs_clarification' => true,
+                'question' => $intent->clarification ?? 'What would you like to do?',
+            ]);
+        }
+
+        // For all other intents, execute directly
+        return response()->json($daftra->execute($intent));
     }
 }

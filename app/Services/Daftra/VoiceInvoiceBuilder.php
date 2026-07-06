@@ -64,7 +64,10 @@ class VoiceInvoiceBuilder
                 $response->data ?? []
             );
         } else {
-            $customerResult = $this->resolveCustomer($parsed['customer_name'] ?? null);
+            $customerResult = $this->resolveCustomer(
+                $parsed['customer_name'] ?? null,
+                $parsed['customer_name_alternatives'] ?? null,
+            );
         }
 
         if ($customerResult->needsClarification()) {
@@ -103,7 +106,10 @@ class VoiceInvoiceBuilder
                 continue;
             }
 
-            $matchResult = $this->productMatcher->findBestMatch($productName);
+            $matchResult = $this->productMatcher->findBestMatch(
+                $productName,
+                $item['product_name_alternatives'] ?? null,
+            );
 
             if ($matchResult->isAmbiguous()) {
                 $ambiguousProducts[] = [
@@ -172,34 +178,55 @@ class VoiceInvoiceBuilder
                 [
                     'role' => 'system',
                     'content' => <<<'PROMPT'
-You are an invoice parser. Extract structured data from voice transcripts.
+You are an invoice parser for a business in Saudi Arabia. Extract structured data from voice transcripts.
 
 Return ONLY a JSON object:
 {
-  "customer_name": "customer name or null",
+  "customer_name": "customer name as mentioned",
+  "customer_name_alternatives": ["common English spellings or null"],
   "items": [
     {
       "product_name": "product name as mentioned",
+      "product_name_alternatives": ["common English spellings or null"],
       "quantity": number
     }
   ]
 }
 
 Rules:
-- Extract product names EXACTLY as mentioned (don't infer sizes/variants)
+- Extract product names EXACTLY as mentioned
 - Extract quantities as numbers
-- If no customer mentioned, set customer_name to null
+- If no customer mentioned, set customer_name and customer_name_alternatives to null
 - If product mentioned without quantity, assume quantity = 1
+- If product name is Arabic, suggest common English spellings used in business
+- If customer name is Arabic, suggest common English business spellings
+- For English names, set alternatives to null
+
+Common Arabic to English business name mappings:
+- وليد → ["Waleed", "Walid", "Waled"]
+- محمد → ["Mohammed", "Mohamed", "Muhammad"]
+- أحمد → ["Ahmed", "Ahmad"]
+- خالد → ["Khaled", "Khalid"]
+- عبدالله → ["Abdullah", "Abdallah"]
+- علي → ["Ali", "Aly"]
+- عمر → ["Omar", "Omer"]
+- حسن → ["Hassan", "Hasan"]
+- حسين → ["Hussein", "Hussain", "Husain"]
+- إبراهيم → ["Ibrahim", "Ebrahim"]
+- سارة → ["Sarah", "Sara"]
+- نورة → ["Noura", "Nora"]
+- فاطمة → ["Fatima", "Fatma"]
+- نور → ["Noor", "Nour"]
 
 Examples:
-Input: "Create invoice for Ahmed with 5 Pepsi and 2 Coca Cola"
-Output: {"customer_name": "Ahmed", "items": [{"product_name": "Pepsi", "quantity": 5}, {"product_name": "Coca Cola", "quantity": 2}]}
+Input: "Create invoice for وليد with 5 بيبسي and 2 كوكاكولا"
+Output: {"customer_name": "وليد", "customer_name_alternatives": ["Waleed", "Walid", "Waled"], "items": [{"product_name": "بيبسي", "product_name_alternatives": ["Pepsi", "Pepsi Cola"], "quantity": 5}, {"product_name": "كوكاكولا", "product_name_alternatives": ["Coca Cola", "Coca-Cola", "Coke"], "quantity": 2}]}
 
 Input: "Invoice for Sarah 10 water bottles"
-Output: {"customer_name": "Sarah", "items": [{"product_name": "water bottles", "quantity": 10}]}
+Output: {"customer_name": "Sarah", "customer_name_alternatives": null, "items": [{"product_name": "water bottles", "product_name_alternatives": null, "quantity": 10}]}
 
 Input: "Create invoice with 3 laptops"
-Output: {"customer_name": null, "items": [{"product_name": "laptops", "quantity": 3}]}
+Output: {"customer_name": null, "customer_name_alternatives": null, "items": [{"product_name": "laptops", "product_name_alternatives": null, "quantity": 3}]}
 PROMPT
                 ],
                 [
@@ -207,7 +234,7 @@ PROMPT
                     'content' => "Transcript: \"{$transcript}\"",
                 ],
             ],
-            'max_tokens' => 300,
+            'max_tokens' => 500,
             'temperature' => 0.1,
         ]);
 
@@ -229,7 +256,7 @@ PROMPT
     /**
      * Resolve customer by name
      */
-    private function resolveCustomer(?string $name): CustomerResolutionResult
+    private function resolveCustomer(?string $name, ?array $nameAlternatives = null): CustomerResolutionResult
     {
         if (! $name) {
             return CustomerResolutionResult::needsClarificationResult(
@@ -238,17 +265,15 @@ PROMPT
             );
         }
 
-        // Search clients in Daftra
-        $response = $this->clients->list(['keywords' => $name, 'per_page' => 5]);
+        // Search with original name + AI-suggested alternatives
+        $customers = $this->searchWithAlternatives($name, $nameAlternatives ?? []);
 
-        if (empty($response->data)) {
+        if (empty($customers)) {
             return CustomerResolutionResult::needsClarificationResult(
                 "Customer '{$name}' not found. Would you like to create a new customer?",
                 []
             );
         }
-
-        $customers = $response->data;
 
         // Single exact match
         if (count($customers) === 1) {
@@ -267,6 +292,47 @@ PROMPT
             : 'Which customer: '.implode(', ', $names).'?';
 
         return CustomerResolutionResult::needsClarificationResult($question, $customers);
+    }
+
+    /**
+     * Search clients by original name then try AI-suggested alternatives
+     */
+    private function searchWithAlternatives(string $name, array $alternatives): array
+    {
+        $response = $this->clients->list(['keywords' => $name, 'per_page' => 10]);
+        $customers = $response->data ?? [];
+
+        if (count($customers) < 3) {
+            foreach ($alternatives as $alt) {
+                if (strtolower($alt) === strtolower($name)) {
+                    continue;
+                }
+
+                $altResponse = $this->clients->list(['keywords' => $alt, 'per_page' => 10]);
+
+                if (! empty($altResponse->data)) {
+                    foreach ($altResponse->data as $candidate) {
+                        $customers[] = $candidate;
+                    }
+                }
+            }
+
+            // Deduplicate by client ID
+            $seen = [];
+            $customers = array_values(array_filter($customers, function ($c) use (&$seen) {
+                $id = $c['Client']['id'] ?? $c['id'] ?? spl_object_id($c);
+
+                if (isset($seen[$id])) {
+                    return false;
+                }
+
+                $seen[$id] = true;
+
+                return true;
+            }));
+        }
+
+        return $customers;
     }
 
     /**

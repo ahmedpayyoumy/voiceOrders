@@ -2,8 +2,35 @@
 
 namespace App\Services\Daftra;
 
+use App\Services\Daftra\Data\AppointmentData;
+use App\Services\Daftra\Data\ClientData;
+use App\Services\Daftra\Data\ClientPaymentData;
+use App\Services\Daftra\Data\CreditNoteData;
+use App\Services\Daftra\Data\Data;
+use App\Services\Daftra\Data\EstimateData;
+use App\Services\Daftra\Data\ExpenseData;
+use App\Services\Daftra\Data\FollowUpActionData;
+use App\Services\Daftra\Data\FollowUpStatusData;
+use App\Services\Daftra\Data\IncomeData;
 use App\Services\Daftra\Data\InvoiceData;
 use App\Services\Daftra\Data\InvoiceItemData;
+use App\Services\Daftra\Data\InvoicePaymentData;
+use App\Services\Daftra\Data\JournalAccountData;
+use App\Services\Daftra\Data\JournalData;
+use App\Services\Daftra\Data\NoteData;
+use App\Services\Daftra\Data\ProductCategoryData;
+use App\Services\Daftra\Data\ProductData;
+use App\Services\Daftra\Data\PurchaseInvoiceData;
+use App\Services\Daftra\Data\PurchaseRefundData;
+use App\Services\Daftra\Data\RefundReceiptData;
+use App\Services\Daftra\Data\StaffData;
+use App\Services\Daftra\Data\StockTransactionData;
+use App\Services\Daftra\Data\StoreData;
+use App\Services\Daftra\Data\SupplierData;
+use App\Services\Daftra\Data\TaxData;
+use App\Services\Daftra\Data\TimeTrackingData;
+use App\Services\Daftra\Data\TreasuryData;
+use App\Services\Daftra\Data\WorkOrderData;
 use App\Services\Daftra\Interpreter\Intent;
 use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Interpreter\QueryInterpreter;
@@ -90,6 +117,47 @@ class DaftraService
         }
 
         return $this->execute($intent);
+    }
+
+    private function intentToData(Intent $intent): Data
+    {
+        $map = [
+            'clients' => ClientData::class,
+            'products' => ProductData::class,
+            'product_categories' => ProductCategoryData::class,
+            'invoices' => InvoiceData::class,
+            'estimates' => EstimateData::class,
+            'credit_notes' => CreditNoteData::class,
+            'refund_receipts' => RefundReceiptData::class,
+            'purchase_invoices' => PurchaseInvoiceData::class,
+            'purchase_refunds' => PurchaseRefundData::class,
+            'suppliers' => SupplierData::class,
+            'work_orders' => WorkOrderData::class,
+            'stores' => StoreData::class,
+            'stock_transactions' => StockTransactionData::class,
+            'expenses' => ExpenseData::class,
+            'incomes' => IncomeData::class,
+            'journals' => JournalData::class,
+            'journal_accounts' => JournalAccountData::class,
+            'taxes' => TaxData::class,
+            'treasuries' => TreasuryData::class,
+            'client_payments' => ClientPaymentData::class,
+            'invoice_payments' => InvoicePaymentData::class,
+            'staff' => StaffData::class,
+            'notes' => NoteData::class,
+            'time_tracking' => TimeTrackingData::class,
+            'client_appointments' => AppointmentData::class,
+            'follow_up_actions' => FollowUpActionData::class,
+            'follow_up_statuses' => FollowUpStatusData::class,
+        ];
+
+        $class = $map[$intent->module] ?? null;
+
+        if (! $class) {
+            throw new \InvalidArgumentException("No Data class mapped for module: {$intent->module}");
+        }
+
+        return $class::fromArray($intent->data ?? []);
     }
 
     public function processVoiceOrder(string $transcript, ?string $apiKey = null, ?string $domain = null): array

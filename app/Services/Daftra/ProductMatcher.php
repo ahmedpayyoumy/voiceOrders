@@ -17,16 +17,14 @@ class ProductMatcher
      * Find best matching product by voice query
      *
      * @param  string  $query  Voice input (e.g., "Pepsi", "Pepsi large", "Pepsi 500ml")
+     * @param  array|null  $queryAlternatives  AI-suggested alternative spellings
      */
-    public function findBestMatch(string $query): ProductMatchResult
+    public function findBestMatch(string $query, ?array $queryAlternatives = null): ProductMatchResult
     {
-        // Step 1: Search Daftra products API
-        $response = $this->products->list([
-            'keywords' => $query,
-            'per_page' => 20,
-        ]);
+        // Step 1: Search Daftra products API (with AI-suggested alternatives)
+        $allProducts = $this->searchWithAlternatives($query, $queryAlternatives ?? []);
 
-        if (empty($response->data)) {
+        if (empty($allProducts)) {
             return ProductMatchResult::notFound($query);
         }
 
@@ -36,7 +34,7 @@ class ProductMatcher
                 'product' => $product,
                 'score' => $this->calculateRelevanceScore($product, $query),
             ];
-        }, $response->data);
+        }, $allProducts);
 
         // Step 3: Sort by score descending
         usort($scored, fn ($a, $b) => $b['score'] <=> $a['score']);
@@ -67,6 +65,51 @@ class ProductMatcher
             product: $topMatch['product'],
             score: $topMatch['score'],
         );
+    }
+
+    /**
+     * Search products by original query then try AI-suggested alternatives
+     */
+    private function searchWithAlternatives(string $query, array $alternatives): array
+    {
+        $response = $this->products->list([
+            'keywords' => $query,
+            'per_page' => 20,
+        ]);
+
+        $products = $response->data ?? [];
+
+        if (count($products) < 3) {
+            foreach ($alternatives as $alt) {
+                if (strtolower($alt) === strtolower($query)) {
+                    continue;
+                }
+
+                $altResponse = $this->products->list(['keywords' => $alt, 'per_page' => 20]);
+
+                if (! empty($altResponse->data)) {
+                    foreach ($altResponse->data as $candidate) {
+                        $products[] = $candidate;
+                    }
+                }
+            }
+
+            // Deduplicate by product ID
+            $seen = [];
+            $products = array_values(array_filter($products, function ($p) use (&$seen) {
+                $id = $p['Product']['id'] ?? $p['id'] ?? spl_object_id($p);
+
+                if (isset($seen[$id])) {
+                    return false;
+                }
+
+                $seen[$id] = true;
+
+                return true;
+            }));
+        }
+
+        return $products;
     }
 
     /**

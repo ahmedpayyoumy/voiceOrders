@@ -197,6 +197,33 @@ export function voiceCapture(defaults = {}) {
                 const data = await res.json();
                 this.daftraResult = data;
 
+                // Handle voice-order style responses (invoice creation path)
+                if (data.status === 'needs_clarification') {
+                    this.clarificationNeeded = true;
+                    this.clarificationType = data.clarification_type || 'product';
+                    this.clarificationQuestion = data.question || 'Which one did you mean?';
+                    this.alternatives = data.alternatives || [];
+                    this.matchedItems = data.matched_items || [];
+                    this.productQuery = data.product_query || '';
+                    this.error = '';
+                    if (data.customer) {
+                        this.selectedCustomerId = data.customer.Client?.id ?? null;
+                        this.selectedCustomer = data.customer;
+                    }
+                    return;
+                }
+
+                if (data.status === 'needs_confirmation') {
+                    this.needsConfirmation = true;
+                    this.confirmationCustomer = data.customer || null;
+                    this.confirmationItems = data.items || [];
+                    this.confirmationTotal = data.total || 0;
+                    this.productQuery = '';
+                    this.error = '';
+                    return;
+                }
+
+                // Original behavior for other queries
                 if (data.needs_clarification) {
                     this.error = data.question || 'Query incomplete';
                 } else if (data.formatted) {

@@ -29,13 +29,38 @@ abstract class Data
 
     public static function fromArray(array $data): static
     {
-        $instance = new static;
-        foreach ($data as $key => $value) {
-            if (property_exists($instance, $key)) {
-                $instance->{$key} = $value;
+        $constructor = (new \ReflectionClass(static::class))->getConstructor();
+
+        if ($constructor && $constructor->getParameters()) {
+            $validKeys = [];
+
+            foreach ($constructor->getParameters() as $param) {
+                $name = $param->getName();
+                $validKeys[] = $name;
+
+                if (! array_key_exists($name, $data) || $data[$name] === null) {
+                    continue;
+                }
+
+                $type = $param->getType();
+
+                if ($type instanceof \ReflectionNamedType && $type->isBuiltin()) {
+                    $value = $data[$name];
+                    $typeName = $type->getName();
+
+                    $data[$name] = match ($typeName) {
+                        'int' => (int) $value,
+                        'float' => (float) $value,
+                        'string' => (string) $value,
+                        'bool' => (bool) $value,
+                        default => $value,
+                    };
+                }
             }
+
+            $data = array_intersect_key($data, array_flip($validKeys));
         }
 
-        return $instance;
+        return new static(...$data);
     }
 }

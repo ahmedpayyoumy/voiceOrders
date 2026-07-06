@@ -22,6 +22,18 @@ class RefundReceiptData extends Data
         return 'RefundReceipt';
     }
 
+    public static function fromArray(array $data): static
+    {
+        if (isset($data['items']) && is_array($data['items'])) {
+            $data['items'] = array_map(
+                fn ($item) => is_array($item) ? InvoiceItemData::fromArray($item) : $item,
+                $data['items'],
+            );
+        }
+
+        return parent::fromArray($data);
+    }
+
     public function toRequestBody(): array
     {
         $body = parent::toArray();
