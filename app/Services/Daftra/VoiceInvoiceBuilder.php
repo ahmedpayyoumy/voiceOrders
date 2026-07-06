@@ -37,12 +37,24 @@ class VoiceInvoiceBuilder
         ?int $selectedCustomerId = null,
         ?int $selectedProductId = null,
         ?string $selectedProductQuery = null,
+        array $selectedProducts = [],
     ): InvoicePreparationResult {
         // Step 1: Extract entities using AI
         $parsed = $this->parseTranscript($transcript);
 
         if (! $parsed['success']) {
             return InvoicePreparationResult::failed($parsed['error']);
+        }
+
+        // Build lookup map of previously selected products
+        $productLookup = [];
+        foreach ($selectedProducts as $sp) {
+            if (isset($sp['product_id'], $sp['query'])) {
+                $productLookup[strtolower($sp['query'])] = (int) $sp['product_id'];
+            }
+        }
+        if ($selectedProductId && $selectedProductQuery) {
+            $productLookup[strtolower($selectedProductQuery)] = (int) $selectedProductId;
         }
 
         // Step 2: Resolve customer (skip if already selected via clarification)
@@ -69,12 +81,14 @@ class VoiceInvoiceBuilder
         foreach ($parsed['items'] as $item) {
             $productName = $item['product_name'];
 
-            // Skip product matcher for pre-selected product from clarification
-            if ($selectedProductId && $selectedProductQuery && strcasecmp($productName, $selectedProductQuery) === 0) {
-                $product = $this->productMatcher->getById($selectedProductId);
+            // Skip product matcher for pre-selected products from clarification
+            $lookupKey = strtolower($productName);
+            if (isset($productLookup[$lookupKey])) {
+                $productId = $productLookup[$lookupKey];
+                $product = $this->productMatcher->getById($productId);
                 if (! $product) {
                     return InvoicePreparationResult::failed(
-                        "Selected product (ID: {$selectedProductId}) not found."
+                        "Selected product (ID: {$productId}) not found."
                     );
                 }
 

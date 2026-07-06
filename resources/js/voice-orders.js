@@ -42,6 +42,7 @@ export function voiceCapture(defaults = {}) {
         selectedCustomerId: null,
         selectedCustomer: null,
         selectedProductName: null,
+        selectedProducts: [],
 
         // Confirmation step
         needsConfirmation: false,
@@ -225,6 +226,7 @@ export function voiceCapture(defaults = {}) {
             this.selectedCustomerId = null;
             this.selectedCustomer = null;
             this.selectedProductName = null;
+            this.selectedProducts = [];
             this.needsConfirmation = false;
             this.confirmationCustomer = null;
             this.confirmationItems = [];
@@ -343,8 +345,10 @@ export function voiceCapture(defaults = {}) {
                 }
 
                 this.selectedProductName = alternative.Product?.name || productQuery;
+                // Accumulate selected product
+                this.selectedProducts.push({ product_id: productId, query: productQuery });
                 this.isSending = true;
-                console.debug('[selectAlternative] sending product selection', {productId, productQuery, customerId: this.selectedCustomerId});
+                console.debug('[selectAlternative] sending product selection', {productId, productQuery, customerId: this.selectedCustomerId, allSelected: this.selectedProducts});
                 try {
                     const res = await apiFetch('/api/orders/daftra', {
                         method: 'POST',
@@ -356,6 +360,7 @@ export function voiceCapture(defaults = {}) {
                             selected_customer_id: this.selectedCustomerId,
                             selected_product_id: productId,
                             selected_product_query: productQuery,
+                            selected_products: this.selectedProducts,
                         }),
                     });
 
@@ -479,6 +484,7 @@ export function voiceCapture(defaults = {}) {
             this.selectedCustomerId = null;
             this.selectedCustomer = null;
             this.selectedProductName = null;
+            this.selectedProducts = [];
             this.needsConfirmation = false;
             this.confirmationCustomer = null;
             this.confirmationItems = [];

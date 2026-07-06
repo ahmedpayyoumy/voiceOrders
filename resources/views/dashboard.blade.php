@@ -91,11 +91,11 @@
                             <span class="font-medium">Customer:</span>
                             <span x-text="selectedCustomer?.Client?.business_name || selectedCustomer?.Client?.name || '—'"></span>
                         </div>
-                        <div class="flex items-center gap-2 text-sm" :class="confirmationItems.length ? 'text-green-700' : 'text-gray-400'">
+                        <div class="flex items-center gap-2 text-sm" :class="confirmationItems.length || selectedProducts.length ? 'text-green-700' : 'text-gray-400'">
                             <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-                                  :class="confirmationItems.length ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'">2</span>
+                                  :class="confirmationItems.length || selectedProducts.length ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'">2</span>
                             <span class="font-medium">Products:</span>
-                            <span x-text="confirmationItems.map(i => i.product_name).join(', ') || '—'"></span>
+                            <span x-text="confirmationItems.map(i => i.product_name).join(', ') || matchedItems.map(i => i.product_name).join(', ') || selectedProducts.map(i => i.query).join(', ') || '—'"></span>
                         </div>
                     </div>
 

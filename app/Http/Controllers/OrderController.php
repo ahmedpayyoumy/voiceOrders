@@ -69,7 +69,8 @@ class OrderController extends Controller
             $request->transcript,
             $request->selected_customer_id,
             $request->selected_product_id,
-            $request->selected_product_query
+            $request->selected_product_query,
+            $request->selected_products ?? [],
         );
 
         // Step 2: If needs clarification, return question
@@ -132,6 +133,7 @@ class OrderController extends Controller
                 new InvoiceData(
                     client_id: (int) ($customerData['id'] ?? $request->selected_customer_id),
                     issue_date: now()->format('Y-m-d'),
+                    draft: true,
                     items: array_map(
                         fn ($item) => new InvoiceItemData(
                             product_id: (int) $item['product_id'],
