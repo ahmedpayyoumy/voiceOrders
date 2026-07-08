@@ -2,6 +2,7 @@
 
 namespace App\Services\Daftra\Interpreter;
 
+use App\Services\Daftra\ModuleRegistry;
 use Illuminate\Support\Facades\Http;
 
 class QueryInterpreter
@@ -74,44 +75,7 @@ class QueryInterpreter
     {
         $lower = strtolower($transcript);
 
-        $modules = [
-            'client' => 'clients',
-            'customer' => 'clients',
-            'product' => 'products',
-            'item' => 'products',
-            'invoice' => 'invoices',
-            'bill' => 'invoices',
-            'estimate' => 'estimates',
-            'quote' => 'estimates',
-            'credit' => 'credit_notes',
-            'refund' => 'refund_receipts',
-            'purchase' => 'purchase_invoices',
-            'supplier' => 'suppliers',
-            'vendor' => 'suppliers',
-            'stock' => 'stock_transactions',
-            'inventory' => 'stock_transactions',
-            'warehouse' => 'stores',
-            'store' => 'stores',
-            'work order' => 'work_orders',
-            'expense' => 'expenses',
-            'income' => 'incomes',
-            'payment' => 'client_payments',
-            'staff' => 'staff',
-            'employee' => 'staff',
-            'journal' => 'journals',
-            'tax' => 'taxes',
-            'note' => 'notes',
-            'appointment' => 'client_appointments',
-            'requisition' => 'purchase_invoices',
-        ];
-
-        $matchedModule = null;
-        foreach ($modules as $keyword => $module) {
-            if (str_contains($lower, $keyword)) {
-                $matchedModule = $module;
-                break;
-            }
-        }
+        $matchedModule = ModuleRegistry::moduleFromKeyword($lower);
 
         $type = IntentType::Unknown;
         if (preg_match('/\b(get|show|list|find|search|display|view|all)\b/', $lower)) {
@@ -140,71 +104,43 @@ class QueryInterpreter
 
     private function systemPrompt(): string
     {
-        return <<<'PROMPT'
-You are a Daftra API query interpreter. Parse natural language queries into structured intents.
+        $modules = ModuleRegistry::all();
+        $lines = ['You are a Daftra API query interpreter. Parse natural language queries into structured intents.'];
+        $lines[] = '';
+        $lines[] = 'Available modules and their fields:';
 
-Available modules:
-- clients (customers)
-- products (items, inventory)
-- product_categories
-- invoices (bills, sales)
-- estimates (quotes)
-- credit_notes
-- refund_receipts
-- purchase_invoices (purchase orders, requisitions)
-- purchase_refunds
-- suppliers (vendors)
-- work_orders
-- stores (warehouses)
-- stock_transactions (inventory movements)
-- expenses
-- incomes
-- journals
-- journal_accounts
-- taxes
-- treasuries
-- client_payments
-- invoice_payments
-- staff (employees)
-- notes
-- time_tracking
-- client_appointments
-- follow_up_actions
-- follow_up_statuses
+        foreach ($modules as $key => $class) {
+            $fields = ModuleRegistry::fieldsFor($key);
+            $fieldList = implode(', ', array_map(
+                fn ($f) => "{$f['name']} ({$f['type']})",
+                $fields,
+            ));
+            $lines[] = "- {$key}: {$fieldList}";
+        }
 
-Return ONLY a JSON object (no markdown, no explanation):
-{
-  "type": "list" | "get" | "create" | "update" | "delete" | "count" | "unknown",
-  "module": "module_name",
-  "filters": { "field": "value" },
-  "data": { ... } | null,
-  "is_complete": true/false,
-  "clarification": "question to ask user if incomplete, or null"
-}
+        $lines[] = '';
+        $lines[] = 'Return ONLY a JSON object (no markdown, no explanation):';
+        $lines[] = '{';
+        $lines[] = '  "type": "list" | "get" | "create" | "update" | "delete" | "count" | "unknown",';
+        $lines[] = '  "module": "module_name",';
+        $lines[] = '  "filters": { "field": "value" },';
+        $lines[] = '  "data": { ... } | null,';
+        $lines[] = '  "is_complete": true/false,';
+        $lines[] = '  "clarification": "question to ask user if incomplete, or null"';
+        $lines[] = '}';
+        $lines[] = '';
+        $lines[] = 'Use field names from the module\'s field list above for filters and data payloads.';
+        $lines[] = 'For date ranges, convert natural language:';
+        $lines[] = '- "last month" → date_from and date_to';
+        $lines[] = '- "this month" → first/last day of current month';
+        $lines[] = '- "last week" → 7 days ago to today';
+        $lines[] = '- "between X and Y" → date_from/date_to';
+        $lines[] = '';
+        $lines[] = 'Handle incomplete queries:';
+        $lines[] = '- If the user doesn\'t specify what to do, set type to "unknown" and is_complete to false';
+        $lines[] = '- If the user didn\'t specify a module, set module to "" and is_complete to false';
+        $lines[] = '- Provide a clarification question when is_complete is false';
 
-Filter field mapping:
-- Client name/number → "client_id" or "client_business_name" 
-- Product name/id → "product_id" or "item"
-- Date range → include "date_from" and "date_to" in filters
-- Status → "status"
-- Supplier → "supplier_id" or "business_name"
-- Store/warehouse → "store_id"
-- Search term → "search"
-
-For date ranges, convert natural language:
-- "last month" → date_from and date_to
-- "this month" → first/last day of current month
-- "last week" → 7 days ago to today
-- "between X and Y" → date_from/date_to
-
-Handle incomplete queries:
-- If the user doesn't specify what to do, set type to "unknown" and is_complete to false
-- If the user didn't specify a module, set module to "" and is_complete to false
-- Provide a clarification question when is_complete is false
-
-Map "requisitions" to purchase_invoices module.
-Map "warehouse" to stores module.
-Map "inventory" to stock_transactions module.
-PROMPT;
+        return implode("\n", $lines);
     }
 }

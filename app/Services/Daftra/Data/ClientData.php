@@ -12,7 +12,7 @@ class ClientData extends Data
         public readonly ?string $email = null,
         public readonly ?string $password = null,
         public readonly ?int $type = null,
-        public readonly ?string $phone = null,
+        public readonly ?string $phone1 = null,
         public readonly ?string $mobile = null,
         public readonly ?string $address1 = null,
         public readonly ?string $address2 = null,
