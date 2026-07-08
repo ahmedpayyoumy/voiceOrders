@@ -9,7 +9,7 @@ class IncomeResource extends Resource
         return '/incomes';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Income';
     }

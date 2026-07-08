@@ -9,7 +9,7 @@ class FollowUpActionResource extends Resource
         return '/follow_up_actions';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'FollowUpAction';
     }

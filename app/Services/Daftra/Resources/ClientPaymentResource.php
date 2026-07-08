@@ -9,7 +9,7 @@ class ClientPaymentResource extends Resource
         return '/client_payments';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'ClientPayment';
     }

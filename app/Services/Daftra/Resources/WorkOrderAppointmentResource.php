@@ -9,7 +9,7 @@ class WorkOrderAppointmentResource extends Resource
         return '/work_order_appointments';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Appointment';
     }

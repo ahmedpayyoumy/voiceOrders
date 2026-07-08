@@ -9,7 +9,7 @@ class WorkOrderResource extends Resource
         return '/work_orders';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'WorkOrder';
     }

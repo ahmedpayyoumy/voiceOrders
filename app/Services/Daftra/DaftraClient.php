@@ -5,6 +5,7 @@ namespace App\Services\Daftra;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class DaftraClient
@@ -26,22 +27,43 @@ class DaftraClient
 
     public function get(string $path, array $query = []): DaftraResponse
     {
-        return $this->handleResponse($this->http->get($path, $query));
+        $response = $this->http->get($path, $query);
+        $this->logExchange('GET', $path, $query, $response);
+
+        return $this->handleResponse($response);
     }
 
     public function post(string $path, array $data = []): DaftraResponse
     {
-        return $this->handleResponse($this->http->post($path, $data));
+        $response = $this->http->post($path, $data);
+        $this->logExchange('POST', $path, $data, $response);
+
+        return $this->handleResponse($response);
     }
 
     public function put(string $path, array $data = []): DaftraResponse
     {
-        return $this->handleResponse($this->http->put($path, $data));
+        $response = $this->http->put($path, $data);
+        $this->logExchange('PUT', $path, $data, $response);
+
+        return $this->handleResponse($response);
     }
 
     public function delete(string $path): DaftraResponse
     {
-        return $this->handleResponse($this->http->delete($path));
+        $response = $this->http->delete($path);
+        $this->logExchange('DELETE', $path, [], $response);
+
+        return $this->handleResponse($response);
+    }
+
+    private function logExchange(string $method, string $path, array $data, Response $response): void
+    {
+        Log::channel('daftra')->info("{$method} {$path}", [
+            'request' => $data,
+            'response_status' => $response->status(),
+            'response' => $response->json(),
+        ]);
     }
 
     private function handleResponse(Response $response): DaftraResponse

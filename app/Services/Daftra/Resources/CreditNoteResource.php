@@ -9,7 +9,7 @@ class CreditNoteResource extends Resource
         return '/credit_notes';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'CreditNote';
     }

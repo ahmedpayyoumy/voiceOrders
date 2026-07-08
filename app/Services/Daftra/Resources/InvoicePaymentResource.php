@@ -9,7 +9,7 @@ class InvoicePaymentResource extends Resource
         return '/invoice_payments';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'InvoicePayment';
     }

@@ -9,7 +9,7 @@ class StockTransactionResource extends Resource
         return '/stock_transactions';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'StockTransaction';
     }

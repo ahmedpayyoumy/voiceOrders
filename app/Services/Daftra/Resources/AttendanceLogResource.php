@@ -9,7 +9,7 @@ class AttendanceLogResource extends Resource
         return '/client_attendance_logs';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'ClientAttendanceLog';
     }

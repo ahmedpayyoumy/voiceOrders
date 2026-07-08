@@ -9,7 +9,7 @@ class TreasuryResource extends Resource
         return '/treasuries';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Treasury';
     }

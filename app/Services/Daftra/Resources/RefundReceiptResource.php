@@ -9,7 +9,7 @@ class RefundReceiptResource extends Resource
         return '/refund_receipts';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'RefundReceipt';
     }

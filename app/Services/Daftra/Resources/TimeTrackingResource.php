@@ -9,7 +9,7 @@ class TimeTrackingResource extends Resource
         return '/time_tracking';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'TimeTracking';
     }

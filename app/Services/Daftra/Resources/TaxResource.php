@@ -9,7 +9,7 @@ class TaxResource extends Resource
         return '/taxes';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Tax';
     }

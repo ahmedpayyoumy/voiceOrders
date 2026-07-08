@@ -9,7 +9,7 @@ class SupplierResource extends Resource
         return '/suppliers';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Supplier';
     }

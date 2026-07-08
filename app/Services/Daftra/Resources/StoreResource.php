@@ -9,7 +9,7 @@ class StoreResource extends Resource
         return '/stores';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Store';
     }

@@ -9,7 +9,7 @@ class GeneralListingResource extends Resource
         return '/general_listing';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Listing';
     }

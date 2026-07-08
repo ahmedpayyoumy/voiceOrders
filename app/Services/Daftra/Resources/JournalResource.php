@@ -9,7 +9,7 @@ class JournalResource extends Resource
         return '/journals';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Journal';
     }

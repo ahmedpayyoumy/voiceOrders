@@ -11,7 +11,7 @@ class SiteResource extends Resource
         return '/site';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Site';
     }

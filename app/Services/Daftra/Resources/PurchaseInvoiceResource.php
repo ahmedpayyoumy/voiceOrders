@@ -9,7 +9,7 @@ class PurchaseInvoiceResource extends Resource
         return '/purchase_invoices';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'PurchaseInvoice';
     }

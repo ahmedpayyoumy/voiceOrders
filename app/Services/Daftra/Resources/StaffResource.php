@@ -9,7 +9,7 @@ class StaffResource extends Resource
         return '/staff';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Staff';
     }

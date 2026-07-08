@@ -9,7 +9,7 @@ class PurchaseRefundResource extends Resource
         return '/purchase_refunds';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'PurchaseRefund';
     }

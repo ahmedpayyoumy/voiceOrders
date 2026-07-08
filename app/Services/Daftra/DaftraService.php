@@ -8,6 +8,7 @@ use App\Services\Daftra\Interpreter\Intent;
 use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Interpreter\QueryInterpreter;
 use App\Services\Daftra\Interpreter\ResponseFormatter;
+use App\Services\Daftra\Resources\Resource;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -38,6 +39,22 @@ class DaftraService
     {
         $resource = $this->client->module($intent->module);
 
+        $resourceId = (int) ($intent->filters['id'] ?? 0);
+
+        if ($resourceId === 0 && in_array($intent->type, [IntentType::Update, IntentType::Delete], true)) {
+            $resolvedId = $this->resolveResourceId($intent, $resource);
+
+            if ($resolvedId === null) {
+                return [
+                    'success' => false,
+                    'error' => 'Resource not found matching the given criteria',
+                    'intent' => $intent->toArray(),
+                ];
+            }
+
+            $resourceId = $resolvedId;
+        }
+
         try {
             $response = match ($intent->type) {
                 IntentType::List, IntentType::Count => $resource->list(
@@ -50,11 +67,11 @@ class DaftraService
                     $this->intentToData($intent)
                 ),
                 IntentType::Update => $resource->update(
-                    (int) ($intent->filters['id'] ?? 0),
-                    $this->intentToData($intent)
+                    $resourceId,
+                    $this->mergeUpdateData($resource, $resourceId, $intent)
                 ),
                 IntentType::Delete => $resource->delete(
-                    (int) ($intent->filters['id'] ?? 0)
+                    $resourceId
                 ),
                 default => throw new \InvalidArgumentException('Unknown intent type'),
             };
@@ -103,6 +120,69 @@ class DaftraService
         }
 
         return $class::fromArray($intent->data ?? []);
+    }
+
+    private function resolveResourceId(Intent $intent, Resource $resource): ?int
+    {
+        $searchableFields = ['first_name', 'last_name', 'business_name', 'name', 'email', 'phone', 'mobile'];
+
+        $terms = [];
+        foreach ($searchableFields as $field) {
+            if (! empty($intent->filters[$field]) && is_string($intent->filters[$field])) {
+                $terms[] = $intent->filters[$field];
+            }
+        }
+
+        if (empty($terms)) {
+            foreach ($intent->filters as $field => $value) {
+                if (is_string($value) && ! empty($value) && $field !== 'id') {
+                    $terms[] = $value;
+                }
+            }
+        }
+
+        if (empty($terms)) {
+            return null;
+        }
+
+        $keywords = implode(' ', $terms);
+
+        $response = $resource->list(['keywords' => $keywords, 'per_page' => 10]);
+        $items = $response->data ?? [];
+
+        if (empty($items)) {
+            return null;
+        }
+
+        $item = $items[0];
+        $entityKey = $resource->entityKey();
+
+        if ($entityKey && isset($item[$entityKey]['id'])) {
+            return (int) $item[$entityKey]['id'];
+        }
+
+        return ($id = $item['id'] ?? 0) ? (int) $id : null;
+    }
+
+    private function mergeUpdateData(Resource $resource, int $resourceId, Intent $intent): Data
+    {
+        $map = ModuleRegistry::all();
+        $class = $map[$intent->module] ?? null;
+
+        if (! $class) {
+            throw new \InvalidArgumentException("No Data class mapped for module: {$intent->module}");
+        }
+
+        $existingResponse = $resource->get($resourceId);
+        $entityKey = $resource->entityKey();
+        $existingData = $existingResponse->entity($entityKey) ?? [];
+
+        $updateData = $class::fromArray($intent->data ?? [])->toArray()[$entityKey] ?? [];
+
+        $merged = array_merge($existingData, $updateData);
+        unset($merged['id']);
+
+        return $class::fromArray($merged);
     }
 
     public function processVoiceOrder(string $transcript, ?string $apiKey = null, ?string $domain = null): array

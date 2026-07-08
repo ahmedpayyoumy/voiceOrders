@@ -9,7 +9,7 @@ class ProductCategoryResource extends Resource
         return '/product_categories';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'ProductCategory';
     }

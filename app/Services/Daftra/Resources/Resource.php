@@ -12,7 +12,7 @@ abstract class Resource
 
     abstract protected function path(): string;
 
-    abstract protected function entityKey(): string;
+    abstract public function entityKey(): string;
 
     public function __construct(DaftraClient $client)
     {

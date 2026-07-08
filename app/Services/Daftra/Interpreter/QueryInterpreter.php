@@ -106,6 +106,7 @@ class QueryInterpreter
     {
         $modules = ModuleRegistry::all();
         $lines = ['You are a Daftra API query interpreter. Parse natural language queries into structured intents.'];
+        $lines[] = 'The user may speak in Egyptian Arabic, Saudi Arabian Arabic, or English. Understand and parse their intent regardless of language.';
         $lines[] = '';
         $lines[] = 'Available modules and their fields:';
 
@@ -130,6 +131,11 @@ class QueryInterpreter
         $lines[] = '}';
         $lines[] = '';
         $lines[] = 'Use field names from the module\'s field list above for filters and data payloads.';
+        $lines[] = 'IMPORTANT — Product vs Service type:';
+        $lines[] = '- When creating a product (user says "create product", "add product", "new product", or similar in English, Arabic, or any accent), set data.type = 1';
+        $lines[] = '- When creating a service (user says "create service", "add service", "new service", or similar in English, Arabic, or any accent), set data.type = 2';
+        $lines[] = '- Arabic examples: "منتج" or "إضافة منتج" or "product" → type=1. "خدمة" or "إضافة خدمة" or "service" → type=2';
+        $lines[] = '- If the user does not specify product or service, default to type=1 (product).';
         $lines[] = 'For date ranges, convert natural language:';
         $lines[] = '- "last month" → date_from and date_to';
         $lines[] = '- "this month" → first/last day of current month';

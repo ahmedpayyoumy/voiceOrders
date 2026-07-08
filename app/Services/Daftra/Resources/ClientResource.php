@@ -9,7 +9,7 @@ class ClientResource extends Resource
         return '/clients';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Client';
     }

@@ -9,7 +9,7 @@ class EstimateAppointmentResource extends Resource
         return '/estimate_appointments';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Appointment';
     }

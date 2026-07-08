@@ -106,7 +106,7 @@ class ResponseFormatter
                 $entity['id'] ?? '?',
                 $entity['name'] ?? '',
                 $entity['sku'] ?? 'N/A',
-                $entity['price'] ?? '0',
+                $entity['unit_price'] ?? '0',
             ),
             'suppliers' => sprintf(
                 '- #%s %s (%s)',

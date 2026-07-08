@@ -9,7 +9,7 @@ class NoteResource extends Resource
         return '/notes';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Note';
     }

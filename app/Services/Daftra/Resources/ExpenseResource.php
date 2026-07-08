@@ -9,7 +9,7 @@ class ExpenseResource extends Resource
         return '/expenses';
     }
 
-    protected function entityKey(): string
+    public function entityKey(): string
     {
         return 'Expense';
     }
