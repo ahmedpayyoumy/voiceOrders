@@ -21,6 +21,7 @@ use App\Services\Daftra\Data\ProductData;
 use App\Services\Daftra\Data\PurchaseInvoiceData;
 use App\Services\Daftra\Data\PurchaseRefundData;
 use App\Services\Daftra\Data\RefundReceiptData;
+use App\Services\Daftra\Data\RequisitionData;
 use App\Services\Daftra\Data\StaffData;
 use App\Services\Daftra\Data\StockTransactionData;
 use App\Services\Daftra\Data\StoreData;
@@ -46,6 +47,7 @@ class ModuleRegistry
             'refund_receipts' => RefundReceiptData::class,
             'purchase_invoices' => PurchaseInvoiceData::class,
             'purchase_refunds' => PurchaseRefundData::class,
+            'requisitions' => RequisitionData::class,
             'suppliers' => SupplierData::class,
             'work_orders' => WorkOrderData::class,
             'stores' => StoreData::class,
@@ -97,7 +99,7 @@ class ModuleRegistry
             'tax' => 'taxes',
             'note' => 'notes',
             'appointment' => 'client_appointments',
-            'requisition' => 'purchase_invoices',
+            'requisition' => 'requisitions',
         ];
     }
 

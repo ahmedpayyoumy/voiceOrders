@@ -4,6 +4,8 @@ namespace App\Services\Daftra;
 
 use App\Services\Daftra\Data\Data;
 use App\Services\Daftra\Data\InvoiceItemData;
+use App\Services\Daftra\Data\RequisitionData;
+use App\Services\Daftra\Data\RequisitionItemData;
 use App\Services\Daftra\Interpreter\Intent;
 use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Interpreter\QueryInterpreter;
@@ -41,6 +43,12 @@ class DaftraService
 
         $resourceId = (int) ($intent->filters['id'] ?? 0);
 
+        $data = $intent->data ?? [];
+
+        $quantity = $data['quantity'] ?? null;
+        $requisitionType = $data['requisition_type'] ?? null;
+        $storeId = $data['store_id'] ?? null;
+
         if ($resourceId === 0 && in_array($intent->type, [IntentType::Update, IntentType::Delete], true)) {
             $resolvedId = $this->resolveResourceId($intent, $resource);
 
@@ -76,6 +84,8 @@ class DaftraService
                 default => throw new \InvalidArgumentException('Unknown intent type'),
             };
 
+            $this->handleProductRequisition($intent, $response, $resourceId, $quantity, $requisitionType, $storeId);
+
             $formatted = $this->formatter->format($response, $intent);
 
             return [
@@ -91,6 +101,43 @@ class DaftraService
                 'intent' => $intent->toArray(),
             ];
         }
+    }
+
+    private function handleProductRequisition(Intent $intent, DaftraResponse $response, int $resourceId, mixed $quantity, mixed $requisitionType, ?int $storeId): void
+    {
+        if ($intent->module !== 'products' || ! $response->successful() || $quantity === null) {
+            return;
+        }
+
+        $productId = $intent->type === IntentType::Create ? $response->id : $resourceId;
+
+        if ($productId === null) {
+            return;
+        }
+
+        $this->createRequisition(
+            productId: $productId,
+            quantity: abs((int) $quantity),
+            storeId: $storeId,
+            type: (int) ($requisitionType ?? 1),
+        );
+    }
+
+    private function createRequisition(int $productId, int $quantity, ?int $storeId, int $type): void
+    {
+        $requisitionData = new RequisitionData(
+            store_id: $storeId,
+            type: $type,
+            order_type: $type,
+            items: [
+                new RequisitionItemData(
+                    product_id: $productId,
+                    quantity: abs((int) $quantity),
+                ),
+            ],
+        );
+
+        $this->client->module('requisitions')->create($requisitionData);
     }
 
     public function interpretAndExecute(string $transcript): array

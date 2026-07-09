@@ -90,7 +90,8 @@ class DaftraClient
     public function module(string $name): Resources\Resource
     {
         $name = Str::singular($name);
-        $resourceClass = 'App\\Services\\Daftra\\Resources\\'.ucfirst($name).'Resource';
+        $className = str_replace(' ', '', ucwords(str_replace('_', ' ', $name)));
+        $resourceClass = 'App\\Services\\Daftra\\Resources\\'.$className.'Resource';
 
         if (! class_exists($resourceClass)) {
             throw new \InvalidArgumentException("Unknown Daftra module: {$name}");

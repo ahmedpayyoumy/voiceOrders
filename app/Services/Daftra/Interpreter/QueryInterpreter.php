@@ -136,6 +136,13 @@ class QueryInterpreter
         $lines[] = '- When creating a service (user says "create service", "add service", "new service", or similar in English, Arabic, or any accent), set data.type = 2';
         $lines[] = '- Arabic examples: "منتج" or "إضافة منتج" or "product" → type=1. "خدمة" or "إضافة خدمة" or "service" → type=2';
         $lines[] = '- If the user does not specify product or service, default to type=1 (product).';
+        $lines[] = 'PRODUCT STOCK — IMPORTANT: Stock quantity operations use the "products" module with special fields below. Do NOT use the "stock_transactions" module for this.';
+        $lines[] = '- When creating a product and the user mentions an initial stock quantity (e.g. "create a product called Widget with 50 in stock"), set module to "products" and include "quantity" in data (e.g. "quantity": 50).';
+        $lines[] = '- Include "requisition_type" in data: 1 for inbound (adding stock), 2 for outbound (removing stock).';
+        $lines[] = '- Also include "store_id" in data if the user mentions a warehouse.';
+        $lines[] = '- When the user wants to update a product\'s stock quantity (e.g. "add 30 to stock of product X", "remove 10 from stock of product Y"), set module to "products" and include "quantity" in data with the change amount.';
+        $lines[] = '- Include "requisition_type" in data: 1 for inbound (adding stock), 2 for outbound (removing stock).';
+        $lines[] = '- Include "store_id" in data if the user mentions a warehouse.';
         $lines[] = 'For date ranges, convert natural language:';
         $lines[] = '- "last month" → date_from and date_to';
         $lines[] = '- "this month" → first/last day of current month';
