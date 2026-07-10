@@ -42,6 +42,23 @@ class DaftraResponse
     {
         $list = $this->data ?? [];
 
-        return array_map(fn ($item) => $item[$key] ?? $item, $list);
+        if (empty($list)) {
+            return [];
+        }
+
+        $first = $list[0] ?? [];
+
+        if (is_array($first) && isset($first[$key])) {
+            return array_map(fn ($item) => $item[$key], $list);
+        }
+
+        if (is_array($first)) {
+            $actualKey = array_key_first($first);
+            if ($actualKey !== null && is_array($first[$actualKey])) {
+                return array_map(fn ($item) => $item[$actualKey] ?? $item, $list);
+            }
+        }
+
+        return $list;
     }
 }

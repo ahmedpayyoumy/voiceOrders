@@ -398,6 +398,20 @@ class DaftraService
         $dateFrom = $intent->filters['date_from'] ?? ($intent->data['date_from'] ?? null);
         $dateTo = $intent->filters['date_to'] ?? ($intent->data['date_to'] ?? null);
 
+        // Handle nested { date: { date_from, date_to } } from AI
+        if ($dateFrom === null && isset($intent->filters['date']['date_from'])) {
+            $dateFrom = $intent->filters['date']['date_from'];
+        }
+        if ($dateTo === null && isset($intent->filters['date']['date_to'])) {
+            $dateTo = $intent->filters['date']['date_to'];
+        }
+
+        // Handle single string "date" filter (e.g., "date": "2026-07-09") — treat as same-day range
+        if ($dateFrom === null && isset($intent->filters['date']) && is_string($intent->filters['date'])) {
+            $dateFrom = $intent->filters['date'];
+            $dateTo = $intent->filters['date'];
+        }
+
         if (is_string($dateFrom) && trim($dateFrom) !== '') {
             $params['date_from'] = trim($dateFrom);
         }
