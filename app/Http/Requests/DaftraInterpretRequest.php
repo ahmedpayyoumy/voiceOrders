@@ -17,6 +17,7 @@ class DaftraInterpretRequest extends FormRequest
             'transcript' => 'required|string',
             'daftra_domain' => 'nullable|string|max:255',
             'daftra_api_key' => 'nullable|string',
+            'selected_customer_id' => 'nullable|integer',
         ];
     }
 }

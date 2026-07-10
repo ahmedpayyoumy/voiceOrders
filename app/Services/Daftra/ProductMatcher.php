@@ -72,44 +72,41 @@ class ProductMatcher
      */
     private function searchWithAlternatives(string $query, array $alternatives): array
     {
-        $response = $this->products->list([
-            'keywords' => $query,
-            'per_page' => 20,
-        ]);
+        $searchTerms = [$query, ...$alternatives, ...$this->generateArabicKeywordVariants($query)];
+        $searchTerms = array_values(array_unique(array_filter(array_map('trim', $searchTerms))));
 
-        $products = $response->data ?? [];
+        $products = [];
+        foreach (array_slice($searchTerms, 0, 10) as $term) {
+            $response = $this->products->list([
+                'keywords' => $term,
+                'per_page' => 20,
+            ]);
 
-        if (count($products) < 3) {
-            foreach ($alternatives as $alt) {
-                if (strtolower($alt) === strtolower($query)) {
-                    continue;
+            if (! empty($response->data)) {
+                foreach ($response->data as $candidate) {
+                    $products[] = $candidate;
                 }
 
-                $altResponse = $this->products->list(['keywords' => $alt, 'per_page' => 20]);
-
-                if (! empty($altResponse->data)) {
-                    foreach ($altResponse->data as $candidate) {
-                        $products[] = $candidate;
-                    }
+                if (count($products) >= 5) {
+                    break;
                 }
             }
-
-            // Deduplicate by product ID
-            $seen = [];
-            $products = array_values(array_filter($products, function ($p) use (&$seen) {
-                $id = $p['Product']['id'] ?? $p['id'] ?? spl_object_id($p);
-
-                if (isset($seen[$id])) {
-                    return false;
-                }
-
-                $seen[$id] = true;
-
-                return true;
-            }));
         }
 
-        return $products;
+        // Deduplicate by product ID
+        $seen = [];
+
+        return array_values(array_filter($products, function ($p) use (&$seen) {
+            $id = $p['Product']['id'] ?? $p['id'] ?? spl_object_id($p);
+
+            if (isset($seen[$id])) {
+                return false;
+            }
+
+            $seen[$id] = true;
+
+            return true;
+        }));
     }
 
     /**
@@ -117,8 +114,9 @@ class ProductMatcher
      */
     private function calculateRelevanceScore($product, string $query): float
     {
-        $name = strtolower($product['name'] ?? '');
-        $query = strtolower($query);
+        $entity = $product['Product'] ?? $product;
+        $name = $this->normalizeKeyword((string) ($entity['name'] ?? ''));
+        $query = $this->normalizeKeyword($query);
 
         $score = 0;
 
@@ -144,21 +142,53 @@ class ProductMatcher
         }
 
         // Boost: Product is active/available
-        if (($product['is_active'] ?? true)) {
+        if (($entity['is_active'] ?? true)) {
             $score += 5;
         }
 
         // Boost: Product has stock
-        if (($product['stock_quantity'] ?? 0) > 0) {
+        if (($entity['stock_quantity'] ?? 0) > 0) {
             $score += 5;
         }
 
         // Boost: Popular product (has recent sales)
-        if (($product['total_sold'] ?? 0) > 10) {
+        if (($entity['total_sold'] ?? 0) > 10) {
             $score += 5;
         }
 
         return min($score, 100);
+    }
+
+    private function generateArabicKeywordVariants(string $keyword): array
+    {
+        if (! Transliteration::isArabic($keyword)) {
+            return [];
+        }
+
+        $base = $this->normalizeKeyword($keyword);
+
+        $variants = [
+            $keyword,
+            $base,
+            str_replace('ة', 'ه', $base),
+            str_replace('ه', 'ة', $base),
+            str_replace('ى', 'ي', $base),
+            str_replace('ي', 'ى', $base),
+            str_replace(['أ', 'إ', 'آ'], 'ا', $keyword),
+            str_replace('ئ', 'ي', $base),
+            str_replace('ؤ', 'و', $base),
+            str_replace('ء', '', $base),
+        ];
+
+        return array_values(array_unique(array_filter(array_map('trim', $variants))));
+    }
+
+    private function normalizeKeyword(string $value): string
+    {
+        $value = mb_strtolower($value, 'UTF-8');
+        $value = preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{0640}]/u', '', $value) ?? $value;
+
+        return str_replace(['أ', 'إ', 'آ'], 'ا', $value);
     }
 
     /**

@@ -226,6 +226,65 @@
                         </div>
                     </div>
 
+                    <!-- Invoice List Result -->
+                    <div x-show="invoiceList.length" class="bg-slate-50 border-2 border-slate-300 rounded-lg p-6 mb-6">
+                        <div class="flex items-start justify-between gap-4 mb-4">
+                            <div>
+                                <h3 class="font-semibold text-slate-900 text-lg">Latest Invoices</h3>
+                                <p class="text-sm text-slate-600">
+                                    Client:
+                                    <span class="font-medium text-slate-900" x-text="invoiceClient?.business_name || invoiceClient?.name || ((invoiceClient?.first_name || '') + ' ' + (invoiceClient?.last_name || '')).trim() || '—'"></span>
+                                </p>
+                            </div>
+                            <div class="text-right text-sm text-slate-700" x-show="invoiceSummary">
+                                <p>Total invoices: <span class="font-semibold" x-text="invoiceSummary?.count || 0"></span></p>
+                                <p>Grand total: <span class="font-semibold" x-text="(invoiceSummary?.total || 0).toFixed(2)"></span></p>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto bg-white border border-slate-200 rounded-lg">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-slate-100 text-slate-700">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-medium">#</th>
+                                        <th class="px-3 py-2 text-left font-medium">Date</th>
+                                        <th class="px-3 py-2 text-left font-medium">Status</th>
+                                        <th class="px-3 py-2 text-right font-medium">Total</th>
+                                        <th class="px-3 py-2 text-right font-medium">Paid</th>
+                                        <th class="px-3 py-2 text-right font-medium">Balance</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <template x-for="invoice in invoiceList" :key="invoice.id">
+                                        <tr>
+                                            <td class="px-3 py-2 text-slate-800" x-text="invoice.number || invoice.id"></td>
+                                            <td class="px-3 py-2 text-slate-700" x-text="invoice.date || '—'"></td>
+                                            <td class="px-3 py-2 text-slate-700" x-text="invoice.status || '—'"></td>
+                                            <td class="px-3 py-2 text-right text-slate-900" x-text="invoice.total.toFixed(2)"></td>
+                                            <td class="px-3 py-2 text-right text-slate-900" x-text="invoice.paid.toFixed(2)"></td>
+                                            <td class="px-3 py-2 text-right text-slate-900" x-text="invoice.balance.toFixed(2)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3" x-show="invoiceSummary">
+                            <div class="bg-white border border-slate-200 rounded-lg p-3 text-sm">
+                                <p class="text-slate-500">Total Amount</p>
+                                <p class="font-semibold text-slate-900" x-text="(invoiceSummary?.total || 0).toFixed(2)"></p>
+                            </div>
+                            <div class="bg-white border border-slate-200 rounded-lg p-3 text-sm">
+                                <p class="text-slate-500">Paid</p>
+                                <p class="font-semibold text-slate-900" x-text="(invoiceSummary?.paid || 0).toFixed(2)"></p>
+                            </div>
+                            <div class="bg-white border border-slate-200 rounded-lg p-3 text-sm">
+                                <p class="text-slate-500">Balance</p>
+                                <p class="font-semibold text-slate-900" x-text="(invoiceSummary?.balance || 0).toFixed(2)"></p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="flex flex-wrap justify-center gap-3">
                         <button x-show="!isRecording && isEditing && transcript"
                                 @click="suggestCorrection"

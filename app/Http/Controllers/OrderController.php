@@ -12,6 +12,7 @@ use App\Services\Daftra\DaftraException;
 use App\Services\Daftra\DaftraService;
 use App\Services\Daftra\Data\InvoiceData;
 use App\Services\Daftra\Data\InvoiceItemData;
+use App\Services\Daftra\Interpreter\Intent;
 use App\Services\Daftra\Interpreter\IntentType;
 use App\Services\Daftra\Resources\ClientResource;
 use App\Services\Daftra\Resources\InvoiceResource;
@@ -225,6 +226,25 @@ class OrderController extends Controller
         $client = new DaftraClient($domain, $apiKey);
         $daftra = new DaftraService($client);
         $intent = $daftra->interpret($request->transcript);
+
+        if (
+            $request->filled('selected_customer_id') &&
+            $intent->module === 'invoices' &&
+            $intent->type === IntentType::List
+        ) {
+            $filters = $intent->filters;
+            $filters['client_id'] = (int) $request->selected_customer_id;
+
+            $intent = new Intent(
+                type: $intent->type,
+                module: $intent->module,
+                filters: $filters,
+                data: $intent->data,
+                originalQuery: $intent->originalQuery,
+                isComplete: true,
+                clarification: null,
+            );
+        }
 
         // If create invoice, delegate to the voice order pipeline
         if ($intent->type === IntentType::Create && $intent->module === 'invoices') {

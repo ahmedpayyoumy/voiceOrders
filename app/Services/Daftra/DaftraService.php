@@ -3,6 +3,7 @@
 namespace App\Services\Daftra;
 
 use App\Services\Daftra\Data\Data;
+use App\Services\Daftra\Data\InvoiceData;
 use App\Services\Daftra\Data\InvoiceItemData;
 use App\Services\Daftra\Data\RequisitionData;
 use App\Services\Daftra\Data\RequisitionItemData;
@@ -64,6 +65,13 @@ class DaftraService
         }
 
         try {
+            if ($intent->type === IntentType::List && $intent->module === 'invoices') {
+                $invoiceListResult = $this->executeInvoiceListIntent($intent, $resource);
+                if ($invoiceListResult !== null) {
+                    return $invoiceListResult;
+                }
+            }
+
             $response = match ($intent->type) {
                 IntentType::List, IntentType::Count => $resource->list(
                     $intent->toQuery()->toQueryParams()
@@ -101,6 +109,409 @@ class DaftraService
                 'intent' => $intent->toArray(),
             ];
         }
+    }
+
+    private function executeInvoiceListIntent(Intent $intent, Resource $invoiceResource): ?array
+    {
+        $clientId = (int) ($intent->filters['client_id'] ?? 0);
+        $selectedClient = null;
+
+        if ($clientId === 0) {
+            $clientSearchName = $this->extractClientSearchName($intent);
+
+            if ($clientSearchName === null) {
+                return null;
+            }
+
+            $resolvedClient = $this->resolveClientByName($clientSearchName);
+
+            if ($resolvedClient['status'] === 'not_found') {
+                return [
+                    'success' => false,
+                    'error' => "Client '{$clientSearchName}' not found.",
+                    'intent' => $intent->toArray(),
+                ];
+            }
+
+            if ($resolvedClient['status'] === 'needs_clarification') {
+                return [
+                    'success' => true,
+                    'status' => 'needs_clarification',
+                    'clarification_type' => 'needs_customer',
+                    'needs_clarification' => true,
+                    'question' => $resolvedClient['question'],
+                    'alternatives' => $resolvedClient['alternatives'],
+                    'intent' => $intent->toArray(),
+                ];
+            }
+
+            $clientId = (int) $resolvedClient['client_id'];
+            $selectedClient = $resolvedClient['client'];
+        } else {
+            $clientResponse = $this->client->module('clients')->get($clientId);
+            $selectedClient = $clientResponse->entity('Client') ?? $clientResponse->data;
+        }
+
+        $queryParams = $this->buildInvoiceListQueryParams($intent, $clientId);
+        $response = $invoiceResource->list($queryParams);
+
+        $invoices = $this->mapInvoiceRows($response->data ?? []);
+        $summary = $this->buildInvoiceSummary($invoices, $response);
+        $clientName = $this->clientDisplayName($selectedClient ?? []);
+        $count = count($invoices);
+
+        return [
+            'success' => true,
+            'status' => 'invoice_list',
+            'selected_client' => $selectedClient,
+            'invoices' => $invoices,
+            'summary' => $summary,
+            'formatted' => "Found {$count} invoice(s) for {$clientName}.",
+            'intent' => $intent->toArray(),
+        ];
+    }
+
+    private function extractClientSearchName(Intent $intent): ?string
+    {
+        $fields = [
+            'client',
+            'client_name',
+            'client_business_name',
+            'business_name',
+            'name',
+            'first_name',
+        ];
+
+        foreach ($fields as $field) {
+            $value = $intent->filters[$field] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        $query = trim((string) ($intent->originalQuery ?? ''));
+        if ($query === '') {
+            return null;
+        }
+
+        if (preg_match('/(?:للعميل|للزبون|العميل|الزبون|client)\s+([^\d\n]+)/iu', $query, $matches) === 1) {
+            $name = trim($matches[1]);
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveClientByName(string $name): array
+    {
+        $terms = array_slice($this->buildClientSearchTerms($name), 0, 10);
+        $candidates = $this->searchClientsByTerms($terms);
+
+        if (empty($candidates)) {
+            return ['status' => 'not_found'];
+        }
+
+        $ranked = $this->rankClientCandidates($name, $terms, $candidates);
+
+        if (count($ranked) === 1) {
+            $client = $ranked[0]['raw'];
+
+            return [
+                'status' => 'matched',
+                'client_id' => (int) ($client['id'] ?? 0),
+                'client' => $client,
+            ];
+        }
+
+        $top = $ranked[0] ?? null;
+        $second = $ranked[1] ?? null;
+
+        if ($top !== null && ($top['score'] >= 95) && ($second === null || ($top['score'] - $second['score']) >= 15)) {
+            return [
+                'status' => 'matched',
+                'client_id' => (int) ($top['raw']['id'] ?? 0),
+                'client' => $top['raw'],
+            ];
+        }
+
+        $alternatives = array_map(
+            fn (array $candidate): array => ['Client' => $candidate['raw']],
+            array_slice($ranked, 0, 5),
+        );
+
+        return [
+            'status' => 'needs_clarification',
+            'question' => 'Which customer did you mean?',
+            'alternatives' => $alternatives,
+        ];
+    }
+
+    private function searchClientsByTerms(array $terms): array
+    {
+        $results = [];
+        $seenIds = [];
+
+        foreach ($terms as $term) {
+            if (! is_string($term) || trim($term) === '') {
+                continue;
+            }
+
+            $response = $this->client->module('clients')->list([
+                'keywords' => trim($term),
+                'per_page' => 10,
+            ]);
+
+            foreach (($response->data ?? []) as $candidate) {
+                $client = $candidate['Client'] ?? $candidate;
+                $id = $client['id'] ?? null;
+
+                if ($id === null) {
+                    continue;
+                }
+
+                if (isset($seenIds[$id])) {
+                    continue;
+                }
+
+                $seenIds[$id] = true;
+                $results[] = ['Client' => $client];
+            }
+
+            // Stop early once we have a usable hit set; no need to query every transliteration.
+            if (! empty($results)) {
+                break;
+            }
+
+            if (count($results) >= 10) {
+                break;
+            }
+        }
+
+        return $results;
+    }
+
+    private function buildClientSearchTerms(string $name): array
+    {
+        $terms = [$name];
+        $normalized = $this->normalizeText($name);
+
+        $commonArabicNames = [
+            'وليد' => ['Waleed', 'Walid', 'Waled'],
+            'محمد' => ['Mohammed', 'Mohamed', 'Muhammad'],
+            'احمد' => ['Ahmed', 'Ahmad'],
+            'خالد' => ['Khaled', 'Khalid'],
+        ];
+
+        foreach ($commonArabicNames as $arabic => $variants) {
+            if (str_contains($normalized, $arabic)) {
+                foreach ($variants as $variant) {
+                    $terms[] = $variant;
+                }
+            }
+        }
+
+        if (Transliteration::isArabic($name)) {
+            foreach (Transliteration::transliterateAlternatives($name) as $candidate) {
+                $terms[] = $candidate;
+            }
+        }
+
+        foreach (preg_split('/\s+/u', trim($name)) ?: [] as $token) {
+            if ($token !== '') {
+                $terms[] = $token;
+            }
+        }
+
+        $caseVariants = [];
+        foreach ($terms as $term) {
+            $caseVariants[] = mb_strtolower((string) $term, 'UTF-8');
+        }
+
+        $terms = array_merge($terms, $caseVariants);
+
+        return array_values(array_unique(array_filter(array_map('trim', $terms))));
+    }
+
+    private function rankClientCandidates(string $rawName, array $terms, array $candidates): array
+    {
+        $rawNormalized = $this->normalizeText($rawName);
+        $termNormalized = array_map(fn (string $term): string => $this->normalizeText($term), $terms);
+
+        $ranked = [];
+
+        foreach ($candidates as $candidate) {
+            $client = $candidate['Client'] ?? $candidate;
+            $name = $this->clientDisplayName($client);
+            $normalizedName = $this->normalizeText($name);
+
+            $score = 0;
+
+            if ($normalizedName === $rawNormalized) {
+                $score += 100;
+            }
+
+            if (str_contains($normalizedName, $rawNormalized)) {
+                $score += 40;
+            }
+
+            foreach ($termNormalized as $term) {
+                if ($term === '') {
+                    continue;
+                }
+
+                if ($normalizedName === $term) {
+                    $score += 40;
+
+                    continue;
+                }
+
+                if (str_contains($normalizedName, $term)) {
+                    $score += 20;
+                }
+            }
+
+            $ranked[] = [
+                'score' => $score,
+                'raw' => $client,
+            ];
+        }
+
+        usort($ranked, fn (array $a, array $b): int => $b['score'] <=> $a['score']);
+
+        return $ranked;
+    }
+
+    private function buildInvoiceListQueryParams(Intent $intent, int $clientId): array
+    {
+        $limit = $this->extractRequestedLimit($intent);
+
+        $params = [
+            'client_id' => $clientId,
+            'limit' => $limit,
+            'page' => 1,
+            'sort' => 'date',
+            'direction' => 'DESC',
+        ];
+
+        $dateFrom = $intent->filters['date_from'] ?? ($intent->data['date_from'] ?? null);
+        $dateTo = $intent->filters['date_to'] ?? ($intent->data['date_to'] ?? null);
+
+        if (is_string($dateFrom) && trim($dateFrom) !== '') {
+            $params['date_from'] = trim($dateFrom);
+        }
+
+        if (is_string($dateTo) && trim($dateTo) !== '') {
+            $params['date_to'] = trim($dateTo);
+        }
+
+        return $params;
+    }
+
+    private function extractRequestedLimit(Intent $intent): int
+    {
+        $limitCandidates = [
+            $intent->filters['limit'] ?? null,
+            $intent->filters['per_page'] ?? null,
+            $intent->filters['count'] ?? null,
+            $intent->data['limit'] ?? null,
+            $intent->data['count'] ?? null,
+        ];
+
+        foreach ($limitCandidates as $candidate) {
+            if (is_numeric($candidate) && (int) $candidate > 0) {
+                return min((int) $candidate, 50);
+            }
+        }
+
+        $query = $intent->originalQuery ?? '';
+        if (preg_match('/(?:last|latest|اخر|آخر)\s+([0-9٠-٩]+)/iu', $query, $matches) === 1) {
+            $parsed = (int) $this->normalizeDigits($matches[1]);
+            if ($parsed > 0) {
+                return min($parsed, 50);
+            }
+        }
+
+        if (preg_match('/([0-9٠-٩]+)\s*(?:فواتير|فاتوره|فاتورة|invoices?)/iu', $query, $matches) === 1) {
+            $parsed = (int) $this->normalizeDigits($matches[1]);
+            if ($parsed > 0) {
+                return min($parsed, 50);
+            }
+        }
+
+        return 5;
+    }
+
+    private function mapInvoiceRows(array $items): array
+    {
+        return array_map(function (array $item): array {
+            $invoice = $item['Invoice'] ?? $item;
+
+            $total = (float) ($invoice['summary_total'] ?? $invoice['total'] ?? 0);
+            $paid = (float) ($invoice['paid'] ?? $invoice['amount_paid'] ?? 0);
+            $balance = (float) ($invoice['due'] ?? ($invoice['amount_due'] ?? ($total - $paid)));
+
+            return [
+                'id' => (int) ($invoice['id'] ?? 0),
+                'number' => (string) ($invoice['invoice_number'] ?? $invoice['no'] ?? $invoice['name'] ?? ''),
+                'date' => $invoice['date'] ?? $invoice['issue_date'] ?? null,
+                'due_date' => $invoice['due_date'] ?? null,
+                'status' => (string) ($invoice['status'] ?? $invoice['payment_status'] ?? ''),
+                'currency' => (string) ($invoice['currency_code'] ?? 'SAR'),
+                'total' => $total,
+                'paid' => $paid,
+                'balance' => $balance,
+            ];
+        }, $items);
+    }
+
+    private function buildInvoiceSummary(array $invoices, DaftraResponse $response): array
+    {
+        $total = array_sum(array_column($invoices, 'total'));
+        $paid = array_sum(array_column($invoices, 'paid'));
+        $balance = array_sum(array_column($invoices, 'balance'));
+
+        return [
+            'count' => count($invoices),
+            'total' => round($total, 2),
+            'paid' => round($paid, 2),
+            'balance' => round($balance, 2),
+            'pagination_total' => $response->pagination['total'] ?? count($invoices),
+        ];
+    }
+
+    private function clientDisplayName(array $client): string
+    {
+        $name = trim((string) ($client['business_name'] ?? $client['name'] ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        return trim((string) (($client['first_name'] ?? '').' '.($client['last_name'] ?? ''))) ?: 'Client';
+    }
+
+    private function normalizeText(string $value): string
+    {
+        $lower = mb_strtolower($value, 'UTF-8');
+
+        return preg_replace('/[^\p{Arabic}a-z0-9]+/iu', '', $lower) ?? '';
+    }
+
+    private function normalizeDigits(string $value): string
+    {
+        return strtr($value, [
+            '٠' => '0',
+            '١' => '1',
+            '٢' => '2',
+            '٣' => '3',
+            '٤' => '4',
+            '٥' => '5',
+            '٦' => '6',
+            '٧' => '7',
+            '٨' => '8',
+            '٩' => '9',
+        ]);
     }
 
     private function handleProductRequisition(Intent $intent, DaftraResponse $response, int $resourceId, mixed $quantity, mixed $requisitionType, ?int $storeId): void
